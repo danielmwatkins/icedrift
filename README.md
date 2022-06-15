@@ -1,2 +1,2 @@
-# buoyproc: a library for cleaning and interpolating drifting buoy data
+# drifter: a library for cleaning and interpolating drifting buoy data
 
