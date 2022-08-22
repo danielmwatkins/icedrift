@@ -1,5 +1,6 @@
 """Interpolation tools for buoy analysis. Based on Scipy.interpolate.interp1d and adds calculation of gap size."""
 import pandas as pd
+import numpy as np 
 from scipy.interpolate import interp1d
 
 # Interpolate to a regular grid

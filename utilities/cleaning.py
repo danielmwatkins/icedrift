@@ -6,11 +6,11 @@ import pandas as pd
 import numpy as np
 import pyproj
 
-def flag_duplicates(buoy_df):
+def flag_duplicates(buoy_df, date_index=False):
     """Returns a boolean Series object with the same index
     as buoy_df with True where multiple reports for a given
     time or coordinate exist. Times are rounded to the nearest minute prior
-    to comparison. Expects 'date' to be a column in buoy_df. Latitude and
+    to comparison. If date_index=False, expects 'date' to be a column in buoy_df. Latitude and
     longitude are rounded to the 4th decimal place.
     
     Data are flagged if
@@ -24,7 +24,10 @@ def flag_duplicates(buoy_df):
     due east/west or due north/south.
     """
 
-    date = pd.to_datetime(buoy_df.date).round('1min')
+    if date_index:
+        date = pd.to_datetime(buoy_df.index.values).round('1min')
+    else:
+        date = pd.to_datetime(buoy_df.date).round('1min')
     lats = buoy_df.latitude.round(4)
     lons = buoy_df.longitude.round(4)
     duplicated_times = date.duplicated(keep='first')
@@ -40,13 +43,16 @@ def flag_duplicates(buoy_df):
     flag = duplicated_times + repeated_lats + repeated_lons + duplicated_latlon
     return flag > 0
 
-def check_times(buoy_df):
+def check_times(buoy_df, date_index=False):
     """Check if there are reversals in the time or if data are isolated in time"""
 
     threshold = 12*60*60 # threshold is 12 hours
     
-    date = pd.to_datetime(buoy_df.date)
-    
+    if date_index:
+        date = pd.to_datetime(buoy_df.index.values).round('1min')
+    else:
+        date = pd.to_datetime(buoy_df.date).round('1min')
+
     time_till_next = date.shift(-1) - date
     time_since_last = date - date.shift(1)
 
@@ -55,8 +61,17 @@ def check_times(buoy_df):
     
     return negative_timestep | gap_too_large
 
-def check_speed(buoy_df):
-    """Flags if the buoy drift speed is faster than 1.5 m/s."""
+def compute_and_check_speed(buoy_df, date_index=False):
+    """Flags if the buoy drift speed is faster than 1.5 m/s. Also
+    uses computes LAEA projection and uses that to compute centered difference
+    velocity estimates."""
+    
+    
+    if date_index:
+        date = pd.to_datetime(buoy_df.index.values).round('1min')
+    else:
+        date = pd.to_datetime(buoy_df.date).round('1min')
+    
     projIn = 'epsg:4326' # WGS 84 Ellipsoid
     projOut = 'epsg:3571' # Lambert Azimuthal Equal Area centered at north pole, lon0 is 180
     transformer = pyproj.Transformer.from_crs(projIn, projOut, always_xy=True)
@@ -68,17 +83,19 @@ def check_speed(buoy_df):
     buoy_df['x'] = x
     buoy_df['y'] = y
 
-    dt = (buoy_df.date.shift(-1) - buoy_df.date.shift(1)).dt.total_seconds()
+    dt = (pd.Series(date).shift(-1) - pd.Series(date).shift(1)).dt.total_seconds()
 
     def centered_velocity(xvar, yvar, data, dt=3600):
-        """Assumes the rows are a datetime index with 30 min step size."""
+        """Assumes the rows are a datetime index with 30 min step size.
+        If dt is specified, it should either be an array of the same length
+        as data, or a scalar."""
         dx = data[xvar].shift(-1) - data[xvar].shift(1)
         dy = data[yvar].shift(-1) - data[yvar].shift(1)
         return dx/dt, dy/dt
 
-    dxdt, dydt = centered_velocity('x', 'y', buoy_df, dt)
+    dxdt, dydt = centered_velocity('x', 'y', buoy_df, dt.values)
     buoy_df['u'] = dxdt
     buoy_df['v'] = dydt
     buoy_df['speed'] = np.sqrt(buoy_df['v']**2 + buoy_df['u']**2)
-    
-    return buoy_df['speed'] > 1.5 
+    buoy_df['speed_flag'] = buoy_df['speed'] > 1.5 # will flag open ocean speeds, so use with care
+    return buoy_df
