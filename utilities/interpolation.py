@@ -12,7 +12,7 @@ def interpolate_buoy_track(buoy_df, xvar='longitude', yvar='latitude', freq='1H'
 
     t = pd.Series(buoy_df.index)
     dt = pd.to_timedelta(t - t.min()).dt.total_seconds()
-    tnew = pd.date_range(start=t.min().round('1H'), end=t.max().round('1H'), freq=freq)
+    tnew = pd.date_range(start=t.min().round('1H'), end=t.max().round('1H'), freq=freq).round('1H')
     dtnew = pd.to_timedelta(tnew - tnew.min()).total_seconds()
     
     X = buoy_df[[xvar, yvar]].T
@@ -32,8 +32,9 @@ def interpolate_buoy_track(buoy_df, xvar='longitude', yvar='latitude', freq='1H'
     df_new = pd.DataFrame(data=np.round(Xnew, 5), 
                           columns=[xvar, yvar],
                           index=tnew)
+    df_new.index.names = ['datetime']
     
-    df_new['data_gap_minutes'] = np.round(data_gap/60)
+    df_new['data_gap_minutes'] = np.round(data_gap/60)/2 # convert from sum to average gap at point
     df_new = df_new.where(df_new.data_gap_minutes < maxgap_minutes).dropna()
     return df_new
 
