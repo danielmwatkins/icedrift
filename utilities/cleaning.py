@@ -28,8 +28,8 @@ def flag_duplicates(buoy_df, date_index=False):
         date = pd.to_datetime(buoy_df.index.values).round('1min')
     else:
         date = pd.to_datetime(buoy_df.date).round('1min')
-    lats = buoy_df.latitude.round(4)
-    lons = buoy_df.longitude.round(4)
+    lats = buoy_df.latitude.round(6)
+    lons = buoy_df.longitude.round(6)
     duplicated_times = date.duplicated(keep='first')
     
     # single repeat
@@ -43,10 +43,10 @@ def flag_duplicates(buoy_df, date_index=False):
     flag = duplicated_times + repeated_lats + repeated_lons + duplicated_latlon
     return flag > 0
 
-def check_dates(buoy_df, date_index=False):
+def check_dates(buoy_df, date_index=False, threshold='12H'):
     """Check if there are reversals in the time or if data are isolated in time"""
 
-    threshold = 12*60*60 # threshold is 12 hours
+    threshold = pd.to_timedelta(threshold)
     
     if date_index:
         date = pd.Series(pd.to_datetime(buoy_df.index.values).round('1min'),
@@ -58,7 +58,10 @@ def check_dates(buoy_df, date_index=False):
     time_since_last = date - date.shift(1)
 
     negative_timestep = time_since_last.dt.total_seconds() < 0
-    gap_too_large = (time_till_next.dt.total_seconds() > threshold) | (time_since_last.dt.total_seconds() > threshold)
+#    gap_too_large = (time_till_next > threshold) & (time_since_last > threshold)
+    
+    # alternative:
+    gap_too_large = date.rolling(threshold, center=True).count() < 2
     
     return negative_timestep | gap_too_large
 
@@ -127,13 +130,19 @@ def compute_speed(buoy_df, date_index=False, rotate_uv=False, difference='forwar
         buoy_df.drop(['Nx', 'Ny', 'Ex', 'Ey'], axis=1, inplace=True)
     return buoy_df
 
-def check_speed(data, window, sigma, date_index=False, method='neighbor'):
+def check_speed(buoy_df, window, sigma, date_index=False, method='neighbor'):
     """Checks buoy speed by looking at the minimum of the speed calculated by
     forward differences and by backward differences. For single misplaced points,
     this will identify the point pretty well."""
+
+    if date_index:
+        date = pd.Series(pd.to_datetime(buoy_df.index.values).round('1min'), index=pd.to_datetime(buoy_df.index))
+    else:
+        date = pd.to_datetime(buoy_df.date).round('1min')
+
     
-    fwd_speed = compute_speed(data.copy(), date_index=date_index, difference='forward')['speed']   
-    bwd_speed = compute_speed(data.copy(), date_index=date_index, difference='backward')['speed']   
+    fwd_speed = compute_speed(buoy_df.copy(), date_index=date_index, difference='forward')['speed']   
+    bwd_speed = compute_speed(buoy_df.copy(), date_index=date_index, difference='backward')['speed']   
     speed = pd.DataFrame({'b': bwd_speed, 'f': fwd_speed}).min(axis=1)
     
     # Neighbor anomaly method
@@ -141,20 +150,35 @@ def check_speed(data, window, sigma, date_index=False, method='neighbor'):
         min_values = 3
         speed_anom = speed - speed.rolling(window, center=True).median()
         speed_stdev = speed_anom.std()
-        n = speed.rolling(window, center=True).count()
+        n = speed.rolling(window, center=True, min_periods=0).count()
         flag = np.abs(speed_anom) > sigma*speed_stdev
         flag = flag & (n > min_values)
         return flag
 
     elif method == 'z-score':
-        z = (speed - speed.rolling(window, center=True).mean())/speed.rolling(window, center=True).std()
-        return np.abs(z) > sigma
+        z = (speed - speed.rolling(window, center=True, min_periods=2).mean()
+            )/speed.rolling(window,
+                            center=True,
+                            min_periods=2).std()
+        flag = np.abs(z) > sigma
+
+    dt_next = date.shift(-1) - date
+    dt_prior = date - date.shift(1)
+    gap_threshold = pd.to_timedelta('4H')
+    
+    not_by_gap = (dt_next < gap_threshold) & (dt_prior < gap_threshold)
+    
+    return flag & not_by_gap
+
     
 def fit_splines(date, data, xvar='x', yvar='y', df=25):
     """Fit regression model using natural cubic splines after
     removing 'date', and evaluate at 'date'.
     Returns dataframe with columns xvar, yvar, xvar_hat, yvar_hat,
     and err = sqrt((x-xhat)^2 + (y-yhat)^2)"""
+    from sklearn.linear_model import LinearRegression
+    from patsy import cr
+    
     data_fit = data.drop(date)
     tfit = data_fit.index
     xfit = (tfit - tfit[0]).total_seconds()

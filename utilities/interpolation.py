@@ -13,7 +13,7 @@ def interpolate_buoy_track(buoy_df, xvar='longitude', yvar='latitude', freq='1H'
     t = pd.Series(buoy_df.index)
     dt = pd.to_timedelta(t - t.min()).dt.total_seconds()
     tnew = pd.date_range(start=t.min().round('1H'), end=t.max().round('1H'), freq=freq).round('1H')
-    dtnew = pd.to_timedelta(tnew - tnew.min()).total_seconds()
+    dtnew = pd.to_timedelta(tnew - t.min()).total_seconds()
     
     X = buoy_df[[xvar, yvar]].T
     time_till_next = t.shift(-1) - t
