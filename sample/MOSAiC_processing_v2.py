@@ -24,14 +24,10 @@ buoy_data = {}
 
 begin = '2019-10-15 00:00'
 end = '2022-01-01 00:00'
-max_dt = 2
-margin = pd.to_timedelta('6H')
 
 # Window can be either based on time window or on the an integer number of neighbors.
 window = 5
 eps = 1
-
-
 
 
 
@@ -68,6 +64,7 @@ def dist_from_median(xvar, yvar, data, window):
     
     return np.sqrt(xa**2 + ya**2)
 
+# Step one: compute dist_from_median_uv, dist_from_median_xy, distance to closest point
 for buoy in buoy_data:
     data = buoy_data[buoy]
     fwd_speed = clean.compute_speed(data.copy(), date_index=True, difference='forward')   
@@ -126,7 +123,9 @@ for buoy in buoy_data:
                                    pd.to_datetime(end)+margin)],
                     xvar='longitude', yvar='latitude', freq='1H',
                     maxgap_minutes=240)
-
+                data_interp['day_count'] = data_interp.rolling(window='1D', center=True).count()['longitude']
+                data_interp = data_interp.where(data_interp.day_count >= 12).dropna()
+                
                 buoy_data[sensorweb_id] = clean.compute_speed(
                     data_interp, date_index=True, rotate_uv=True, difference='centered').loc[slice(begin, end)]
             else:

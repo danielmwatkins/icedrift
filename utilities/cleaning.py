@@ -43,11 +43,9 @@ def flag_duplicates(buoy_df, date_index=False):
     flag = duplicated_times + repeated_lats + repeated_lons + duplicated_latlon
     return flag > 0
 
-def check_dates(buoy_df, date_index=False, threshold='12H'):
+def check_dates(buoy_df, date_index=False, check_gaps=False, gap_window='12H', gap_threshold=4):
     """Check if there are reversals in the time or if data are isolated in time"""
 
-    threshold = pd.to_timedelta(threshold)
-    
     if date_index:
         date = pd.Series(pd.to_datetime(buoy_df.index.values).round('1min'),
                          index=buoy_df.index)
@@ -61,9 +59,13 @@ def check_dates(buoy_df, date_index=False, threshold='12H'):
 #    gap_too_large = (time_till_next > threshold) & (time_since_last > threshold)
     
     # alternative:
-    gap_too_large = date.rolling(threshold, center=True).count() < 2
-    
-    return negative_timestep | gap_too_large
+    if check_gaps:
+        # Needs to be flexible to handle possible nonmonotonic date index
+        gap_too_large = buoy_df.rolling(gap_window, center=True, min_periods=0).latitude.count() < gap_threshold
+        return negative_timestep | gap_too_large
+    else:
+        return negative_timestep
+
 
 def compute_speed(buoy_df, date_index=False, rotate_uv=False, difference='forward'):
     """Computes buoy velocity and (optional) rotates into north and east directions.
