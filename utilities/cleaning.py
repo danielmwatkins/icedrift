@@ -227,7 +227,7 @@ def check_position_splines(data, xvar, yvar, df, fit_window, sigma):
     test_dates = data.loc[slice(data.index.min() + margin, data.index.max() -  margin)].index
     
     for date in test_dates:
-        test_fit = test_point(date, data.loc[data['flag'] != 1], 'x', 'y', df=df, fit_window='48H', sigma=10)
+        test_fit = test_point(date, data.loc[data['flag'] != 1], xvar, yvar, df=df, fit_window='48H', sigma=10)
         if test_fit.loc[date, 'flag']:
             # Don't flag points right next to large gaps
             # TBD: Implement method to check error prior to gaps

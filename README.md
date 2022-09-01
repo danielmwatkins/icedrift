@@ -4,7 +4,7 @@ GPS buoys are a crucial tool for observing sea ice motion. As with any observati
 ## data cleaning
 Outlier detection is a common problem in data analysis and there are numerous sophisticated methods in existence. We focus here on outliers that are detectable by consideration of physics: time moving backwards, drifters repeating the same pattern endlessly, jumps in position that would only be possible with teleportation. The approach at this step is nondestructive: questionable data are flagged, not removed. The process is based on the data processing steps taken by Hutchings and Martini.
 
-`flag_duplicates` returns True if the date, latitude, or longitude are duplicated. It checks for duplicated pairs including nonadjacent pairs, and for repeated latitude or longitude values.
+`flag_duplicates` returns True if the date, latitude, or longitude are duplicated. It checks for duplicated pairs including nonadjacent pairs, and for repeated latitude or longitude values. This can be overzealous. For some buoys, there are obviously erroneous repeated values in one or the other coordinate, so a hard check for duplicates is needed. For others, repeated values at local extrema are common and likely valid.
 
 `check_dates` returns True if time runs backward. TBD: identify if time is outside the range indicated by the file.
 
