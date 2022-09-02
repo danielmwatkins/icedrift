@@ -6,7 +6,7 @@ import pandas as pd
 import numpy as np
 import pyproj
 
-def flag_duplicates(buoy_df, date_index=False):
+def check_duplicate_positions(buoy_df, date_index=False, pairs_only=False):
     """Returns a boolean Series object with the same index
     as buoy_df with True where multiple reports for a given
     time or coordinate exist. Times are rounded to the nearest minute prior
@@ -14,57 +14,59 @@ def flag_duplicates(buoy_df, date_index=False):
     longitude are rounded to the 4th decimal place.
     
     Data are flagged if
-    1. A date is repeated anywhere
-    2. If the exact longitude-latitude pair is repeated anywhere
-    3. If a latitude point is repeated
-    4. If a longitude point is repeated
+    1. If the exact longitude-latitude pair is repeated anywhere
+    2. If a latitude point is repeated
+    3. If a longitude point is repeated
     
-    Number 2 is distinct from 3 and 4 in that it allows repeated patterns to be removed.
-    Numbers 3 and 4 are potentially overly restrictive, as it may be the case that a buoy moves 
-    due east/west or due north/south.
+    Number 1 is distinct from 2 and 3 in that it allows repeated patterns to be removed.
+    Numbers 2 and 3 are potentially overly restrictive, as it may be the case that a buoy moves 
+    due east/west or due north/south. In such cases, using "pairs_only=True" is recommended.
     """
 
-    if date_index:
-        date = pd.to_datetime(buoy_df.index.values).round('1min')
-    else:
-        date = pd.to_datetime(buoy_df.date).round('1min')
-    lats = buoy_df.latitude.round(6)
-    lons = buoy_df.longitude.round(6)
-    duplicated_times = date.duplicated(keep='first')
+    lats = buoy_df.latitude.round(10)
+    lons = buoy_df.longitude.round(10)
     
     # single repeat
     repeated_lats = lats.shift(1) == lats    
     repeated_lons = lons.shift(1) == lons
      
-    duplicated_latlon = pd.Series([(x, y) for x, y in zip(buoy_df.longitude.round(4), buoy_df.latitude.round(4))],
+    duplicated_latlon = pd.Series([(x, y) for x, y in zip(lons, lats)],
                                   index=buoy_df.index).duplicated(keep='first')
     
+    if pairs_only:
+        return duplicated_latlon
     
-    flag = duplicated_times + repeated_lats + repeated_lons + duplicated_latlon
-    return flag > 0
+    else:
+         return repeated_lats | repeated_lons | duplicated_latlon
+
 
 def check_dates(buoy_df, date_index=False, check_gaps=False, gap_window='12H', gap_threshold=4):
-    """Check if there are reversals in the time or if data are isolated in time"""
+    """Check if there are reversals in the time or duplicated dates. Optional: check
+    whether data are isolated in time based on specified search windows and the threshold
+    for the number of buoys within the search windows. Dates are rounded to the nearest
+    minute, so in some cases separate readings that are very close in time will be flagged
+    as duplicates."""
 
     if date_index:
         date = pd.Series(pd.to_datetime(buoy_df.index.values).round('1min'),
                          index=buoy_df.index)
     else:
         date = pd.to_datetime(buoy_df.date).round('1min')
+        
+    duplicated_times = date.duplicated(keep='first')
 
     time_till_next = date.shift(-1) - date
     time_since_last = date - date.shift(1)
 
     negative_timestep = time_since_last.dt.total_seconds() < 0
-#    gap_too_large = (time_till_next > threshold) & (time_since_last > threshold)
     
-    # alternative:
     if check_gaps:
         # Needs to be flexible to handle possible nonmonotonic date index
         gap_too_large = buoy_df.rolling(gap_window, center=True, min_periods=0).latitude.count() < gap_threshold
-        return negative_timestep | gap_too_large
+        return negative_timestep | gap_too_large | duplicated_times
+
     else:
-        return negative_timestep
+        return negative_timestep | duplicated_times
 
 
 def compute_speed(buoy_df, date_index=False, rotate_uv=False, difference='forward'):
