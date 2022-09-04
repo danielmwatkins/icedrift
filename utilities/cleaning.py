@@ -242,3 +242,95 @@ def check_position_splines(data, xvar, yvar, df, fit_window, sigma):
                 print('Flagged date ', date)
 
     return data['flag']
+
+def calc_speed_for_outlier_check(buoy_df, date_index=True):
+    """Computes a measure of speed adapted for flagging bad data.
+    Since most of the buoy data has some gaps, the algorithm needs 
+    to calculate speed different at the start and end of regular observations
+    versus in the middle of regular observations. It does this by looking
+    at delta_t_prior and delta_t_post, the times since last and till
+    next. If both are approximately the same size, then the returned 
+    speed is the minimum of the forward and the backward difference estimates
+    of velocity. If delta_t_prior << delta_t_post, only the backward difference is
+    used. Otherwise the forward difference is used."""
+
+    date_index=True
+    buoy_df = buoy_df.dropna(subset=['latitude', 'longitude']).copy()
+  
+    if date_index:
+        date = pd.Series(pd.to_datetime(buoy_df.index.values).round('1min'),
+                         index=buoy_df.index)
+    else:
+        date = pd.to_datetime(buoy_df.date).round('1min')
+
+    delta_t_next = date.shift(-1) - date
+    delta_t_prior = date - date.shift(1)
+
+    fwd_speed = compute_speed(buoy_df.copy(), date_index=True, difference='forward')
+    bwd_speed = compute_speed(buoy_df.copy(), date_index=True, difference='backward')
+
+    min_dt = pd.DataFrame({'dtp': delta_t_prior, 'dtn': delta_t_next}).min(axis=1)
+
+    # bwd endpoint means the next expected obs is missing: last data before gap
+    bwd_endpoint = (delta_t_prior < delta_t_next) & (np.abs(delta_t_prior - delta_t_next) > 2*min_dt)
+    fwd_endpoint = (delta_t_prior > delta_t_next) & (np.abs(delta_t_prior - delta_t_next) > 2*min_dt)
+
+    buoy_df['x'] = fwd_speed['x']
+    buoy_df['y'] = fwd_speed['y']
+    buoy_df['speed'] = pd.DataFrame({'bwd': bwd_speed['speed'], 'fwd': fwd_speed['speed']}).min(axis=1)
+    buoy_df.loc[fwd_endpoint, 'speed'] = fwd_speed['speed'].loc[fwd_endpoint]
+    buoy_df.loc[bwd_endpoint, 'speed'] = bwd_speed['speed'].loc[bwd_endpoint]
+    
+    return buoy_df
+
+def identify_outliers(buoy_df, error_thresh, fit_margin, sigma=6, detailed_return=False):
+    """Flags data that are likely outliers based on three criteria:
+    1. Data have anom_dist > sigma*anom_std
+    2. anom_dist is a local max
+    3. speed is a local max
+    4. Interpolation error is greater than the error_threshold
+    Returns a boolean series of the same length as buoy_df, unless
+    detailed_return=True, in which case a dataframe with the tested values is returned."""
+
+    def est_middle(date, data, xvar, yvar):
+        from scipy.interpolate import interp1d
+        """Similar to the savgol filter, estimate the value at date with a polynomial fit.
+        """
+        t0 = (data.drop(date).index - data.index[0]).total_seconds()
+        t1 = (date - data.index[0]).total_seconds()
+
+        X = data.drop(date).loc[:,[xvar, yvar]].T
+        return interp1d(t0, X.values, bounds_error=False, kind='cubic')(t1).T
+   
+    fit_margin = pd.to_timedelta(fit_margin)
+    anom_std = np.sqrt(2 * buoy_df['anom_dist'].where(buoy_df['anom_dist'] > 0).mean())
+    test_dates = buoy_df[['anom_dist', 'speed']][buoy_df['anom_dist'] > sigma*anom_std]
+    test_dates = test_dates.sort_values('anom_dist')[::-1]
+
+    #anom_above_threshold = buoy_df['anom_dist'] > (buoy_df.where(buoy_df.anom_dist > 0)['anom_dist']).rolling('30D', center=True).median()*2
+    #speed_above_threshold = buoy_df['speed'] > buoy_df['speed'].rolling('30D', center=True).median()*2
+    anom_local_max = buoy_df['anom_dist'] == buoy_df['anom_dist'].rolling(fit_margin, center=True).max()
+    speed_local_max = buoy_df['speed'] == buoy_df['speed'].rolling(fit_margin, center=True).max()
+
+    test_dates['anom_max'] = anom_local_max.loc[test_dates.index]
+    test_dates['speed_max'] = speed_local_max.loc[test_dates.index]
+    #canidates = (test_dates.anom_max & test_dates.speed_max).index
+    test_dates['interp_error'] = np.nan
+
+    for date in test_dates.index:
+        date=pd.to_datetime(date)
+        x0 = buoy_df.loc[date, 'x']
+        y0 = buoy_df.loc[date, 'y']
+        x1, y1 = est_middle(date, buoy_df.loc[slice(date-fit_margin, date+fit_margin)], 'x', 'y') 
+        test_dates.loc[date, 'interp_error'] = np.sqrt((x0-x1)**2 + (y0-y1)**2)
+
+    test_dates['exceeds_threshold'] = test_dates['interp_error'] > error_thresh
+    test_dates['decision'] = (test_dates.anom_max & test_dates.speed_max) & test_dates.exceeds_threshold
+
+    if detailed_return:
+        return test_dates
+
+    else:
+        flag = pd.Series(data=False, index=buoy_df.index)
+        flag.loc[test_dates.loc[test_dates['decision']].index] = True
+        return flag
