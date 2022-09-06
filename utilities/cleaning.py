@@ -77,6 +77,19 @@ def compute_speed(buoy_df, date_index=False, rotate_uv=False, difference='forwar
         date = pd.Series(pd.to_datetime(buoy_df.index.values).round('1min'), index=pd.to_datetime(buoy_df.index))
     else:
         date = pd.to_datetime(buoy_df.date).round('1min')
+    delta_t_next = date.shift(-1) - date
+    delta_t_prior = date - date.shift(1)
+    min_dt = pd.DataFrame({'dtp': delta_t_prior, 'dtn': delta_t_next}).min(axis=1)
+
+    # bwd endpoint means the next expected obs is missing: last data before gap
+    bwd_endpoint = (delta_t_prior < delta_t_next) & (np.abs(delta_t_prior - delta_t_next) > 2*min_dt)
+    fwd_endpoint = (delta_t_prior > delta_t_next) & (np.abs(delta_t_prior - delta_t_next) > 2*min_dt)
+
+#     buoy_df['x'] = fwd_speed['x']
+#     buoy_df['y'] = fwd_speed['y']
+#     buoy_df['speed'] = pd.DataFrame({'bwd': bwd_speed['speed'], 'fwd': fwd_speed['speed']}).min(axis=1)
+#     buoy_df.loc[fwd_endpoint, 'speed'] = fwd_speed['speed'].loc[fwd_endpoint]
+#     buoy_df.loc[bwd_endpoint, 'speed'] = bwd_speed['speed'].loc[bwd_endpoint]
     
     if 'x' not in buoy_df.columns:
         projIn = 'epsg:4326' # WGS 84 Ellipsoid
@@ -105,9 +118,29 @@ def compute_speed(buoy_df, date_index=False, rotate_uv=False, difference='forwar
         dxdt = (buoy_df['x'].shift(-1) - buoy_df['x'].shift(1))/dt
         dydt = (buoy_df['y'].shift(-1) - buoy_df['y'].shift(1))/dt
 
+        dt = (date.shift(-1) - date).dt.total_seconds().values
+        fwd_dxdt = (buoy_df['x'].shift(-1) - buoy_df['x'])/dt
+        fwd_dydt = (buoy_df['y'].shift(-1) - buoy_df['y'])/dt
+
+        dt = (date - date.shift(1)).dt.total_seconds()
+        bwd_dxdt = (buoy_df['x'] - buoy_df['x'].shift(1))/dt
+        bwd_dydt = (buoy_df['y'] - buoy_df['y'].shift(1))/dt
+
+
         
     buoy_df['u'] = dxdt
     buoy_df['v'] = dydt
+    
+    if difference == 'centered':
+        """Compute values at endpoints with fwd or bwd differences"""
+        buoy_df.loc[fwd_endpoint, 'u'] = fwd_dxdt.loc[fwd_endpoint]
+        buoy_df.loc[bwd_endpoint, 'u'] = bwd_dxdt.loc[bwd_endpoint]
+        buoy_df.loc[fwd_endpoint, 'v'] = fwd_dydt.loc[fwd_endpoint]
+        buoy_df.loc[bwd_endpoint, 'v'] = bwd_dydt.loc[bwd_endpoint]
+        
+        dxdt = buoy_df['u']
+        dydt = buoy_df['v']
+        
     buoy_df['speed'] = np.sqrt(buoy_df['v']**2 + buoy_df['u']**2)
     buoy_df['speed_flag'] = buoy_df['speed'] > 1.5 # will flag open ocean speeds, so use with care
     
@@ -132,6 +165,9 @@ def compute_speed(buoy_df, date_index=False, rotate_uv=False, difference='forwar
         buoy_df['bearing'] = heading
         buoy_df['speed'] = np.sqrt(buoy_df['u']**2 + buoy_df['v']**2)
         buoy_df.drop(['Nx', 'Ny', 'Ex', 'Ey'], axis=1, inplace=True)
+        
+    # check if next to gaps
+    
     return buoy_df
 
 def check_speed(buoy_df, window, sigma, date_index=False, method='neighbor'):
