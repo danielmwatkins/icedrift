@@ -1,7 +1,72 @@
 """Interpolation tools for buoy analysis. Based on Scipy.interpolate.interp1d and adds calculation of gap size."""
 import pandas as pd
+import pyproj
 import numpy as np 
 from scipy.interpolate import interp1d
+
+def regrid_buoy_track(buoy_df, xvar='x', yvar='y', precision='5min'):
+    """Applies interp1d with cubic splines to align the buoy track to a 5 min grid.
+    Assumes that the dataframe buoy_df has a datetime index. Errors are reported by
+    computing the difference between the interpolating curve and the original data points,
+    then linearly interpolating the error to the new grid. 
+    Only tested for xvar='x', yvar='y'. If 'x', 'y' not in columns, transforms to LAEA.
+    """
+
+    if xvar not in buoy_df.columns:
+        if xvar == 'x':
+            projIn = 'epsg:4326' # WGS 84 Ellipsoid
+            projOut = 'epsg:3571' # Lambert Azimuthal Equal Area centered at north pole, lon0 is 180
+            transformer = pyproj.Transformer.from_crs(projIn, projOut, always_xy=True)
+
+            lon = buoy_df.longitude.values
+            lat = buoy_df.latitude.values
+
+            x, y = transformer.transform(lon, lat)
+            buoy_df[xvar] = x
+            buoy_df[yvar] = y
+
+
+    t = pd.Series(buoy_df.index)
+    t0 = t.min()
+    t_seconds = pd.to_timedelta(t - t0).dt.total_seconds()
+
+
+    tnew = t.round(precision)
+    tnew = tnew.loc[~tnew.duplicated()] # Drop data points that are closer than 5 minutes to each other
+    tnew_seconds = pd.to_timedelta(tnew - t0).dt.total_seconds()
+
+    X = buoy_df[[xvar, yvar]].T.values
+    Xnew = interp1d(t_seconds, X, bounds_error=False, kind='cubic')(tnew_seconds)
+    idx = ~np.isnan(Xnew.sum(axis=0))
+    buoy_df_new = pd.DataFrame(data=np.round(Xnew.T, 5), 
+                          columns=[xvar, yvar],
+                          index=tnew)
+    buoy_df_new.index.names = ['datetime']
+
+    # Next, get the absolute position error
+    Xnew_at_old = interp1d(tnew_seconds[idx], Xnew[:, idx], bounds_error=False, kind='cubic')(t_seconds)
+    X_err = pd.Series(np.sqrt(np.sum((X - Xnew_at_old)**2, axis=0)), t).ffill().bfill()
+
+    # Finally, assign absolute position error to the new dataframe
+    buoy_df_new['sigma_x_regrid'] = interp1d(t_seconds, X_err,
+                                             bounds_error=False,
+                                             kind='nearest')(tnew_seconds)
+
+    if xvar == 'x':
+        projOut = 'epsg:4326' # WGS 84 Ellipsoid
+        projIn = 'epsg:3571' # Lambert Azimuthal Equal Area centered at north pole, lon0 is 180
+        transformer = pyproj.Transformer.from_crs(projIn, projOut, always_xy=True)
+
+        x = buoy_df_new[xvar].values
+        y = buoy_df_new[yvar].values
+
+        lon, lat = transformer.transform(x, y)
+        buoy_df_new['longitude'] = lon
+        buoy_df_new['latitude'] = lat
+        
+        
+    return buoy_df_new
+
 
 # Interpolate to a regular grid
 def interpolate_buoy_track(buoy_df, xvar='longitude', yvar='latitude', freq='1H', maxgap_minutes=120):
