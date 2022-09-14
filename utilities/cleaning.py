@@ -211,7 +211,7 @@ def check_speed(buoy_df, window, sigma, date_index=False, method='neighbor'):
     return flag & not_by_gap
 
     
-def fit_splines(date, data, xvar='x', yvar='y', df=25):
+def fit_splines(date, data, xvar='x', yvar='y', zvar=None, df=25):
     """Fit regression model using natural cubic splines after
     removing 'date', and evaluate at 'date'.
     Returns dataframe with columns xvar, yvar, xvar_hat, yvar_hat,
@@ -222,21 +222,44 @@ def fit_splines(date, data, xvar='x', yvar='y', df=25):
     data_fit = data.drop(date)
     tfit = data_fit.index
     xfit = (tfit - tfit[0]).total_seconds()
-    yfit = data_fit[[xvar, yvar]]
+    if zvar is not None:
+        yfit = data_fit[[xvar, yvar, zvar]]
+    else:
+        yfit = data_fit[[xvar, yvar]]
+        
     x_basis = cr(xfit, df=df, constraints="center")
     model = LinearRegression().fit(x_basis, yfit)
 
-    t = data.index
-    x = (t - t[0]).total_seconds()
-    y = data[[xvar, yvar]]
-    x_basis = cr(x, df=df, constraints="center")
+    if zvar is not None:
 
-    y_hat = model.predict(x_basis)
-    fitted = pd.DataFrame(y_hat, index=t, columns=[xvar + '_hat', yvar + '_hat'])
-    fitted[xvar] = y[xvar]
-    fitted[yvar] = y[yvar]
-    fitted['err'] = np.sqrt((fitted[xvar + '_hat'] - fitted[xvar])**2 + (fitted[yvar + '_hat'] - fitted[yvar])**2)
-    return fitted.loc[:, [xvar, yvar, xvar + '_hat', yvar + '_hat', 'err']]
+        t = data.index
+        x = (t - t[0]).total_seconds()
+        y = data[[xvar, yvar, zvar]]
+        x_basis = cr(x, df=df, constraints="center")
+
+        y_hat = model.predict(x_basis)
+        fitted = pd.DataFrame(y_hat, index=t, columns=[xvar + '_hat', yvar + '_hat', zvar + '_hat'])
+        fitted[xvar] = y[xvar]
+        fitted[yvar] = y[yvar]
+        fitted[zvar] = y[zvar]
+        
+        fitted['x_err'] = np.sqrt((fitted[xvar + '_hat'] - fitted[xvar])**2 + (fitted[yvar + '_hat'] - fitted[yvar])**2)
+        fitted['z_err'] = fitted[zvar + '_hat'] - fitted[zvar]
+        
+        return fitted.loc[:, [xvar, yvar, zvar, xvar + '_hat', yvar + '_hat', zvar + '_hat', 'x_err', 'z_err']]
+    
+    else:
+        t = data.index
+        x = (t - t[0]).total_seconds()
+        y = data[[xvar, yvar]]
+        x_basis = cr(x, df=df, constraints="center")
+
+        y_hat = model.predict(x_basis)
+        fitted = pd.DataFrame(y_hat, index=t, columns=[xvar + '_hat', yvar + '_hat'])
+        fitted[xvar] = y[xvar]
+        fitted[yvar] = y[yvar]
+        fitted['err'] = np.sqrt((fitted[xvar + '_hat'] - fitted[xvar])**2 + (fitted[yvar + '_hat'] - fitted[yvar])**2)
+        return fitted.loc[:, [xvar, yvar, xvar + '_hat', yvar + '_hat', 'err']]
 
 def test_point(date, data, xvar, yvar, df, fit_window, sigma):
     """Tests whether a point is within the expected range of a smoothed path.
