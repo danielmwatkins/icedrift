@@ -77,7 +77,7 @@ def interpolate_buoy_track(buoy_df, xvar='longitude', yvar='latitude', freq='1H'
 
     t = pd.Series(buoy_df.index)
     dt = pd.to_timedelta(t - t.min()).dt.total_seconds()
-    tnew = pd.date_range(start=t.min().round('1H'), end=t.max().round('1H'), freq=freq).round('1H')
+    tnew = pd.date_range(start=t.min().round(freq), end=t.max().round(freq), freq=freq).round(freq)
     dtnew = pd.to_timedelta(tnew - t.min()).total_seconds()
     
     X = buoy_df[[xvar, yvar]].T
@@ -101,6 +101,28 @@ def interpolate_buoy_track(buoy_df, xvar='longitude', yvar='latitude', freq='1H'
     
     df_new['data_gap_minutes'] = np.round(data_gap/60)/2 # convert from sum to average gap at point
     df_new = df_new.where(df_new.data_gap_minutes < maxgap_minutes).dropna()
+    return df_new
+
+
+def interpolate_buoy_track_to_reference(buoy_df, target_df, xvar='longitude', yvar='latitude'):
+    """Applies interp1d with cubic splines to the pair of variables specied by
+    xvar and yvar. Assumes that the dataframe buoy_df has a datetime index.
+    Interpolates to target_df index where there is overlap.
+    """
+
+    t = pd.Series(buoy_df.index)
+    dt = pd.to_timedelta(t - t.min()).dt.total_seconds()
+    tnew = pd.Series(target_df.index)
+    tnew = tnew[(tnew >= t.min()) & (tnew <= t.max())]    
+    dtnew = pd.to_timedelta(tnew - t.min()).dt.total_seconds()
+    
+    X = buoy_df[[xvar, yvar]].T
+    Xnew = interp1d(dt, X.values, bounds_error=False, kind='cubic')(dtnew).T
+
+    df_new = pd.DataFrame(data=np.round(Xnew, 5), 
+                          columns=[xvar, yvar],
+                          index=tnew)
+    df_new.index.names = ['datetime']
     return df_new
 
 
