@@ -2,23 +2,54 @@ import pandas as pd
 import numpy as np
 import pyproj
 
-def absolute_dispersion(buoy_df, mean_u, mean_v):
-    """Computes the absolute dispersion of a single particle.
-    The code calculates the position perpendicular to the mean flow.
+def absolute_dispersion(vel_varname, data, max_length='30D', step_size=3600):
+    """Computes the absolute dispersion for buoys in data. Data need
+    to be aligned to a common time step. Assumes the start time is time 0,
+    and will use data up to time 0 + max_length. Step size in seconds.
     """
+    dt = pd.to_timedelta(max_length)
+    vel_df = pd.DataFrame({b: data[b][vel_varname].loc[
+                    slice(data[b].index[0], data[b].index[0] + dt)]
+                           for b in data})
+    # calculate integral
+    x_df = pd.DataFrame({b: np.cumsum(vel_df[b]*step_size) for b in vel_df.columns})
+    x_df = (x_df.T - x_df.iloc[0,:]).T # remove initial position
+    N = len(x_df.columns)
+    return 1/(N-1)*(x_df**2).sum(axis=1)
 
-    return
-#     buoy_df['Nx'] = 1/np.sqrt(buoy_df['x']**2 + buoy_df['y']**2) * -buoy_df['x']
-#     buoy_df['Ny'] = 1/np.sqrt(buoy_df['x']**2 + buoy_df['y']**2) * -buoy_df['y']
-#     buoy_df['Ex'] = 1/np.sqrt(buoy_df['x']**2 + buoy_df['y']**2) * -buoy_df['y']
-#     buoy_df['Ey'] = 1/np.sqrt(buoy_df['x']**2 + buoy_df['y']**2) * buoy_df['x']
+def compute_along_across_components(buoy_df, uvar='u', vvar='v', umean='u_mean', vmean='v_mean'):
+    """Project the velocity into along-track and across track components."""
 
-#     buoy_df['u'] = buoy_df['Ex'] * dxdt + buoy_df['Ey'] * dydt
-#     buoy_df['v'] = buoy_df['Nx'] * dxdt + buoy_df['Ny'] * dydt    
+    ub = buoy_df[uvar]
+    us = buoy_df[umean]
+    vb = buoy_df[vvar]
+    vs = buoy_df[vmean]
+
+    scale = (ub*us + vb*vs)/(us**2 + vs**2)
+    buoy_df[uvar + '_along'] = scale*us
+    buoy_df[vvar + '_along'] = scale*vs
+
+    buoy_df[uvar + '_across'] = ub - buoy_df[uvar + '_along']
+    buoy_df[vvar + '_across'] = vb - buoy_df[vvar + '_along']
+    
+    sign = np.sign(buoy_df[umean]*buoy_df[vvar + '_across'] - buoy_df[vmean]*buoy_df[uvar + '_across'])
+    # fluctuating component of velocity
+    buoy_df['U_fluctuating'] = sign * np.sqrt(
+         buoy_df[uvar + '_across']**2 + \
+         buoy_df[vvar + '_across']**2)
+    
+    # along-track component of velocity
+    buoy_df['U_along'] = sign * np.sqrt(
+         buoy_df['u_along']**2 + \
+         buoy_df['v_along']**2)
+    
+    return buoy_df
+
+
     
 def compute_speed(buoy_df, date_index=False, rotate_uv=False, difference='forward'):
     """Computes buoy velocity and (optional) rotates into north and east directions.
-    If x and y are not in the columns, projects lat/lon onto LAEA x/y"""
+    If x and y are not in the columns, projects lat/lon onto stere x/y"""
     
     if date_index:
         date = pd.Series(pd.to_datetime(buoy_df.index.values), index=pd.to_datetime(buoy_df.index))
@@ -35,7 +66,7 @@ def compute_speed(buoy_df, date_index=False, rotate_uv=False, difference='forwar
     
     if 'x' not in buoy_df.columns:
         projIn = 'epsg:4326' # WGS 84 Ellipsoid
-        projOut = 'epsg:3571' # Lambert Azimuthal Equal Area centered at north pole, lon0 is 180
+        projOut = 'epsg:3413' # NSIDC North Polar Stereographic
         transformer = pyproj.Transformer.from_crs(projIn, projOut, always_xy=True)
 
         lon = buoy_df.longitude.values
@@ -83,9 +114,7 @@ def compute_speed(buoy_df, date_index=False, rotate_uv=False, difference='forwar
         dxdt = buoy_df['u']
         dydt = buoy_df['v']
         
-    buoy_df['speed'] = np.sqrt(buoy_df['v']**2 + buoy_df['u']**2)
-    buoy_df['speed_flag'] = buoy_df['speed'] > 1.5 # will flag open ocean speeds, so use with care
-    
+    buoy_df['speed'] = np.sqrt(buoy_df['v']**2 + buoy_df['u']**2)    
     
     if rotate_uv:
         # Unit vectors
