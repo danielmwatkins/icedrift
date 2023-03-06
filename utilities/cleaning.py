@@ -1,114 +1,98 @@
 """Utility functions for flagging nonphysical behavior in drift tracks.
-Currently, columns are added. This should be optional.
+
+Functions starting with "check" return a boolean Series with True where the 
+data is likely bad.
+
+
+
+TBD: Currently, columns are added. This should be optional.
 """
 
 import pandas as pd
 import numpy as np
 import pyproj
-from .analysis import compute_speed
+from .analysis import compute_velocity
 
-def check_duplicate_positions(buoy_df, date_index=False, pairs_only=False):
-    """Returns a boolean Series object with the same index
-    as buoy_df with True where multiple reports for a given
-    time or coordinate exist. Times are rounded to the nearest minute prior
-    to comparison. If date_index=False, expects 'date' to be a column in buoy_df. Latitude and
-    longitude are rounded to the 4th decimal place.
-    
-    Data are flagged if
-    1. If the exact longitude-latitude pair is repeated anywhere
-    2. If a latitude point is repeated
-    3. If a longitude point is repeated
-    
-    Number 1 is distinct from 2 and 3 in that it allows repeated patterns to be removed.
-    Numbers 2 and 3 are potentially overly restrictive, as it may be the case that a buoy moves 
-    due east/west or due north/south. In such cases, using "pairs_only=True" is recommended.
+def check_positions(buoy_df, pairs_only=False,
+                   latname='latitude', lonname='longitude'):
+    """Looks for duplicated or nonphysical position data. Defaults to masking any 
+    data with exact matches in latitude or longitude. Setting pairs_only to false 
+    restricts the check to only flag where both longitude and latitude are repeated
+    as a pair.
     """
 
-    lats = buoy_df.latitude.round(10)
-    lons = buoy_df.longitude.round(10)
+    lats = buoy_df[latname].round(10)
+    lons = buoy_df[lonname].round(10)
     
-    # single repeat
-    repeated_lats = lats.shift(1) == lats    
-    repeated_lons = lons.shift(1) == lons
-     
-    duplicated_latlon = pd.Series([(x, y) for x, y in zip(lons, lats)],
+    invalid_lats = np.abs(lats) > 90
+    if np.any(lons < 0):
+        invalid_lons = np.abs(lons) > 180
+    else:
+        invalid_lons = lons > 360
+        
+    invalid = invalid_lats | invalid_lons
+    
+    repeated = lats.duplicated(keep='first') | lons.duplicated(keep='first')
+    
+    duplicated = pd.Series([(x, y) for x, y in zip(lons, lats)],
                                   index=buoy_df.index).duplicated(keep='first')
     
     if pairs_only:
-        return duplicated_latlon
+        return duplicated | invalid
     
     else:
-         return repeated_lats | repeated_lons | duplicated_latlon
+         return repeated | duplicated | invalid
 
 
-def check_dates(buoy_df, date_index=False, check_gaps=False, gap_window='12H', gap_threshold=4):
+def check_dates(buoy_df, precision='1min', date_col=None):
     """Check if there are reversals in the time or duplicated dates. Optional: check
     whether data are isolated in time based on specified search windows and the threshold
-    for the number of buoys within the search windows. Dates are rounded to the nearest
-    minute, so in some cases separate readings that are very close in time will be flagged
-    as duplicates."""
+    for the number of buoys within the search windows. Dates are rounded to <precision>,
+    so in some cases separate readings that are very close in time will be flagged
+    as duplicates. Assumes date_col is in a format readable by pandas to_datetime.
+    """
 
-    if date_index:
-        date = pd.Series(pd.to_datetime(buoy_df.index.values).round('1min'),
-                         index=buoy_df.index)
+    if date_col is None:
+        date_values = buoy_df.index.values
+        date = pd.Series(pd.to_datetime(date_values).round(precision),
+                     index=buoy_df.index)
     else:
-        date = pd.to_datetime(buoy_df.date).round('1min')
-        
+        date = pd.to_datetime(buoy_df[date_col]).round(precision)
     duplicated_times = date.duplicated(keep='first')
-
+    
     time_till_next = date.shift(-1) - date
     time_since_last = date - date.shift(1)
 
     negative_timestep = time_since_last.dt.total_seconds() < 0
-    
-    if check_gaps:
-        # Needs to be flexible to handle possible nonmonotonic date index
-        gap_too_large = buoy_df.rolling(gap_window, center=True, min_periods=0).latitude.count() < gap_threshold
-        return negative_timestep | gap_too_large | duplicated_times
 
+    return negative_timestep | duplicated_times
+    
+
+def check_gaps(buoy_df, threshold_gap='4H', threshold_segment=12, date_col=None):
+    """Segments the data based on a threshold of <threshold_gap>. Segments shorter
+    than <threshold_segment> are flagged."""
+    
+    if date_col is None:
+        date_values = buoy_df.index.values
+        date = pd.Series(pd.to_datetime(date_values),
+                     index=buoy_df.index)
     else:
-        return negative_timestep | duplicated_times
-
-
-def check_speed(buoy_df, window, sigma, date_index=False, method='neighbor'):
-    """Checks buoy speed by looking at the minimum of the speed calculated by
-    forward differences and by backward differences. For single misplaced points,
-    this will identify the point pretty well."""
-
-    if date_index:
-        date = pd.Series(pd.to_datetime(buoy_df.index.values).round('1min'), index=pd.to_datetime(buoy_df.index))
-    else:
-        date = pd.to_datetime(buoy_df.date).round('1min')
-
+        date = pd.to_datetime(buoy_df[date_col])
     
-    fwd_speed = compute_speed(buoy_df.copy(), date_index=date_index, difference='forward')['speed']   
-    bwd_speed = compute_speed(buoy_df.copy(), date_index=date_index, difference='backward')['speed']   
-    speed = pd.DataFrame({'b': bwd_speed, 'f': fwd_speed}).min(axis=1)
+    time_till_next = date.shift(-1) - date
+    segment = pd.Series(0, index=buoy_df.index)
+    counter = 0
+    tg = pd.to_timedelta(threshold_gap)
+    for t in segment.index:
+        segment.loc[t] = counter
+        if time_till_next[t] > tg:
+            counter += 1
     
-    # Neighbor anomaly method
-    if method == 'neighbor':
-        min_values = 3
-        speed_anom = speed - speed.rolling(window, center=True).median()
-        speed_stdev = speed_anom.std()
-        n = speed.rolling(window, center=True, min_periods=0).count()
-        flag = np.abs(speed_anom) > sigma*speed_stdev
-        flag = flag & (n > min_values)
-        return flag
-
-    elif method == 'z-score':
-        z = (speed - speed.rolling(window, center=True, min_periods=2).mean()
-            )/speed.rolling(window,
-                            center=True,
-                            min_periods=2).std()
-        flag = np.abs(z) > sigma
-
-    dt_next = date.shift(-1) - date
-    dt_prior = date - date.shift(1)
-    gap_threshold = pd.to_timedelta('4H')
-    
-    not_by_gap = (dt_next < gap_threshold) & (dt_prior < gap_threshold)
-    
-    return flag & not_by_gap
+    # apply_filter
+    new = buoy_df.groupby(segment).filter(lambda x: len(x) > threshold_segment).index
+    flag = pd.Series(True, index=buoy_df.index)
+    flag.loc[new] = False
+    return flag
 
     
 def fit_splines(date, data, xvar='x', yvar='y', zvar=None, df=25):
@@ -201,46 +185,6 @@ def check_position_splines(data, xvar, yvar, df, fit_window, sigma):
                 print('Flagged date ', date)
 
     return data['flag']
-
-def calc_speed_for_outlier_check(buoy_df, date_index=True):
-    """Computes a measure of speed adapted for flagging bad data.
-    Since most of the buoy data has some gaps, the algorithm needs 
-    to calculate speed different at the start and end of regular observations
-    versus in the middle of regular observations. It does this by looking
-    at delta_t_prior and delta_t_post, the times since last and till
-    next. If both are approximately the same size, then the returned 
-    speed is the minimum of the forward and the backward difference estimates
-    of velocity. If delta_t_prior << delta_t_post, only the backward difference is
-    used. Otherwise the forward difference is used."""
-
-    date_index=True
-    buoy_df = buoy_df.dropna(subset=['latitude', 'longitude']).copy()
-  
-    if date_index:
-        date = pd.Series(pd.to_datetime(buoy_df.index.values).round('1min'),
-                         index=buoy_df.index)
-    else:
-        date = pd.to_datetime(buoy_df.date).round('1min')
-
-    delta_t_next = date.shift(-1) - date
-    delta_t_prior = date - date.shift(1)
-
-    fwd_speed = compute_speed(buoy_df.copy(), date_index=True, difference='forward')
-    bwd_speed = compute_speed(buoy_df.copy(), date_index=True, difference='backward')
-
-    min_dt = pd.DataFrame({'dtp': delta_t_prior, 'dtn': delta_t_next}).min(axis=1)
-
-    # bwd endpoint means the next expected obs is missing: last data before gap
-    bwd_endpoint = (delta_t_prior < delta_t_next) & (np.abs(delta_t_prior - delta_t_next) > 2*min_dt)
-    fwd_endpoint = (delta_t_prior > delta_t_next) & (np.abs(delta_t_prior - delta_t_next) > 2*min_dt)
-
-    buoy_df['x'] = fwd_speed['x']
-    buoy_df['y'] = fwd_speed['y']
-    buoy_df['speed'] = pd.DataFrame({'bwd': bwd_speed['speed'], 'fwd': fwd_speed['speed']}).min(axis=1)
-    buoy_df.loc[fwd_endpoint, 'speed'] = fwd_speed['speed'].loc[fwd_endpoint]
-    buoy_df.loc[bwd_endpoint, 'speed'] = bwd_speed['speed'].loc[bwd_endpoint]
-    
-    return buoy_df
 
 def identify_outliers(buoy_df, error_thresh, fit_margin, sigma=6, detailed_return=False):
     """Flags data that are likely outliers based on three criteria:

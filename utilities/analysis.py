@@ -2,7 +2,115 @@ import pandas as pd
 import numpy as np
 import pyproj
 
-def absolute_dispersion(vel_varname, data, max_length='30D', step_size=3600):
+    
+def compute_velocity(buoy_df, date_index=True, rotate_uv=False, method='c'):
+    """Computes buoy velocity and (optional) rotates into north and east directions.
+    If x and y are not in the columns, projects lat/lon onto stereographic x/y prior
+    to calculating velocity. Rotate_uv moves the velocity into east/west. Velocity
+    calculations are done on the provided time index. Results will not necessarily 
+    be reliable if the time index is irregular. With centered differences, values
+    near endpoints are calculated as forward or backward differences.
+    
+    Options for method
+    forward (f): forward difference, one time step
+    backward (b): backward difference, one time step
+    centered (c): 3-point centered difference
+    forward_backward (fb): minimum of the forward and backward differences
+    
+    TBD: Add option to fit smooth function and calculate derivate from values of the smooth
+    function, e.g. by fitting a spline.
+    TBD: Make simple test to make sure methods are called correctly
+    TBD: Harmonize the API for specifying date column
+    TBD: use something like **args to collect optional inputs
+    TBD: Improve angle method so it doesn't throw errors, and only compute heading if well defined
+    """
+    buoy_df = buoy_df.copy()
+    
+    if date_index:
+        date = pd.Series(pd.to_datetime(buoy_df.index.values), index=pd.to_datetime(buoy_df.index))
+    else:
+        date = pd.to_datetime(buoy_df.date)
+        
+    delta_t_next = date.shift(-1) - date
+    delta_t_prior = date - date.shift(1)
+    min_dt = pd.DataFrame({'dtp': delta_t_prior, 'dtn': delta_t_next}).min(axis=1)
+
+    # bwd endpoint means the next expected obs is missing: last data before gap
+    bwd_endpoint = (delta_t_prior < delta_t_next) & (np.abs(delta_t_prior - delta_t_next) > 2*min_dt)
+    fwd_endpoint = (delta_t_prior > delta_t_next) & (np.abs(delta_t_prior - delta_t_next) > 2*min_dt)
+    
+    if 'x' not in buoy_df.columns:
+        projIn = 'epsg:4326' # WGS 84 Ellipsoid
+        projOut = 'epsg:3413' # NSIDC North Polar Stereographic
+        transformer = pyproj.Transformer.from_crs(projIn, projOut, always_xy=True)
+
+        lon = buoy_df.longitude.values
+        lat = buoy_df.latitude.values
+
+        x, y = transformer.transform(lon, lat)
+        buoy_df['x'] = x
+        buoy_df['y'] = y
+    
+    if method in ['f', 'forward']:
+        dt = (date.shift(-1) - date).dt.total_seconds().values
+        dxdt = (buoy_df['x'].shift(-1) - buoy_df['x'])/dt
+        dydt = (buoy_df['y'].shift(-1) - buoy_df['y'])/dt
+
+    elif method in ['b', 'backward']:
+        dt = (date - date.shift(1)).dt.total_seconds()
+        dxdt = (buoy_df['x'] - buoy_df['x'].shift(1))/dt
+        dydt = (buoy_df['y'] - buoy_df['y'].shift(1))/dt
+
+    elif method in ['c', 'fb', 'centered', 'forward_backward']:
+        fwd_df = compute_velocity(buoy_df.copy(), date_index=date_index, method='forward')
+        bwd_df = compute_velocity(buoy_df.copy(), date_index=date_index, method='backward')
+
+        fwd_dxdt, fwd_dydt = fwd_df['u'], fwd_df['v']
+        bwd_dxdt, bwd_dydt = bwd_df['u'], bwd_df['v']
+        
+        if method in ['c', 'centered']:
+            dt = (date.shift(-1) - date.shift(1)).dt.total_seconds()
+            dxdt = (buoy_df['x'].shift(-1) - buoy_df['x'].shift(1))/dt
+            dydt = (buoy_df['y'].shift(-1) - buoy_df['y'].shift(1))/dt
+        else:
+            dxdt = np.sign(bwd_dxdt)*np.abs(pd.DataFrame({'f': fwd_dxdt, 'b':bwd_dxdt})).min(axis=1)
+            dydt = np.sign(bwd_dydt)*np.abs(pd.DataFrame({'f': fwd_dydt, 'b':bwd_dydt})).min(axis=1)
+
+        dxdt.loc[fwd_endpoint] = fwd_dxdt.loc[fwd_endpoint]
+        dxdt.loc[bwd_endpoint] = bwd_dxdt.loc[bwd_endpoint]
+        dydt.loc[fwd_endpoint] = fwd_dydt.loc[fwd_endpoint]
+        dydt.loc[bwd_endpoint] = bwd_dydt.loc[bwd_endpoint]
+    
+    if rotate_uv:
+        # Unit vectors
+        buoy_df['Nx'] = 1/np.sqrt(buoy_df['x']**2 + buoy_df['y']**2) * -buoy_df['x']
+        buoy_df['Ny'] = 1/np.sqrt(buoy_df['x']**2 + buoy_df['y']**2) * -buoy_df['y']
+        buoy_df['Ex'] = 1/np.sqrt(buoy_df['x']**2 + buoy_df['y']**2) * -buoy_df['y']
+        buoy_df['Ey'] = 1/np.sqrt(buoy_df['x']**2 + buoy_df['y']**2) * buoy_df['x']
+
+        buoy_df['u'] = buoy_df['Ex'] * dxdt + buoy_df['Ey'] * dydt
+        buoy_df['v'] = buoy_df['Nx'] * dxdt + buoy_df['Ny'] * dydt
+
+        # Calculate angle, then change to 360
+        heading = np.degrees(np.angle(buoy_df.u.values + 1j*buoy_df.v.values))
+        heading = (heading + 360) % 360
+        
+        # Shift to direction from north instead of direction from east
+        heading = 90 - heading
+        heading = (heading + 360) % 360
+        buoy_df['bearing'] = heading
+        buoy_df['speed'] = np.sqrt(buoy_df['u']**2 + buoy_df['v']**2)
+        buoy_df.drop(['Nx', 'Ny', 'Ex', 'Ey'], axis=1, inplace=True)
+        
+    else:
+        buoy_df['u'] = dxdt
+        buoy_df['v'] = dydt            
+        buoy_df['speed'] = np.sqrt(buoy_df['v']**2 + buoy_df['u']**2)    
+
+    return buoy_df
+
+
+def compute_absolute_dispersion(vel_varname, data, max_length='30D', step_size=3600):
     """Computes the absolute dispersion for buoys in data. Data need
     to be aligned to a common time step. Assumes the start time is time 0,
     and will use data up to time 0 + max_length. Step size in seconds.
@@ -46,100 +154,9 @@ def compute_along_across_components(buoy_df, uvar='u', vvar='v', umean='u_mean',
     return buoy_df
 
 
-    
-def compute_speed(buoy_df, date_index=False, rotate_uv=False, difference='forward'):
-    """Computes buoy velocity and (optional) rotates into north and east directions.
-    If x and y are not in the columns, projects lat/lon onto stere x/y"""
-    
-    if date_index:
-        date = pd.Series(pd.to_datetime(buoy_df.index.values), index=pd.to_datetime(buoy_df.index))
-    else:
-        date = pd.to_datetime(buoy_df.date)
-        
-    delta_t_next = date.shift(-1) - date
-    delta_t_prior = date - date.shift(1)
-    min_dt = pd.DataFrame({'dtp': delta_t_prior, 'dtn': delta_t_next}).min(axis=1)
-
-    # bwd endpoint means the next expected obs is missing: last data before gap
-    bwd_endpoint = (delta_t_prior < delta_t_next) & (np.abs(delta_t_prior - delta_t_next) > 2*min_dt)
-    fwd_endpoint = (delta_t_prior > delta_t_next) & (np.abs(delta_t_prior - delta_t_next) > 2*min_dt)
-    
-    if 'x' not in buoy_df.columns:
-        projIn = 'epsg:4326' # WGS 84 Ellipsoid
-        projOut = 'epsg:3413' # NSIDC North Polar Stereographic
-        transformer = pyproj.Transformer.from_crs(projIn, projOut, always_xy=True)
-
-        lon = buoy_df.longitude.values
-        lat = buoy_df.latitude.values
-
-        x, y = transformer.transform(lon, lat)
-        buoy_df['x'] = x
-        buoy_df['y'] = y
-    
-    if difference == 'forward':
-        dt = (date.shift(-1) - date).dt.total_seconds().values
-        dxdt = (buoy_df['x'].shift(-1) - buoy_df['x'])/dt
-        dydt = (buoy_df['y'].shift(-1) - buoy_df['y'])/dt
-
-    elif difference == 'backward':
-        dt = (date - date.shift(1)).dt.total_seconds()
-        dxdt = (buoy_df['x'] - buoy_df['x'].shift(1))/dt
-        dydt = (buoy_df['y'] - buoy_df['y'].shift(1))/dt
-
-    elif difference == 'centered':
-        dt = (date.shift(-1) - date.shift(1)).dt.total_seconds()
-        dxdt = (buoy_df['x'].shift(-1) - buoy_df['x'].shift(1))/dt
-        dydt = (buoy_df['y'].shift(-1) - buoy_df['y'].shift(1))/dt
-
-        dt = (date.shift(-1) - date).dt.total_seconds().values
-        fwd_dxdt = (buoy_df['x'].shift(-1) - buoy_df['x'])/dt
-        fwd_dydt = (buoy_df['y'].shift(-1) - buoy_df['y'])/dt
-
-        dt = (date - date.shift(1)).dt.total_seconds()
-        bwd_dxdt = (buoy_df['x'] - buoy_df['x'].shift(1))/dt
-        bwd_dydt = (buoy_df['y'] - buoy_df['y'].shift(1))/dt
 
 
-        
-    buoy_df['u'] = dxdt
-    buoy_df['v'] = dydt
-    
-    if difference == 'centered':
-        """Compute values at endpoints with fwd or bwd differences"""
-        buoy_df.loc[fwd_endpoint, 'u'] = fwd_dxdt.loc[fwd_endpoint]
-        buoy_df.loc[bwd_endpoint, 'u'] = bwd_dxdt.loc[bwd_endpoint]
-        buoy_df.loc[fwd_endpoint, 'v'] = fwd_dydt.loc[fwd_endpoint]
-        buoy_df.loc[bwd_endpoint, 'v'] = bwd_dydt.loc[bwd_endpoint]
-        
-        dxdt = buoy_df['u']
-        dydt = buoy_df['v']
-        
-    buoy_df['speed'] = np.sqrt(buoy_df['v']**2 + buoy_df['u']**2)    
-    
-    if rotate_uv:
-        # Unit vectors
-        buoy_df['Nx'] = 1/np.sqrt(buoy_df['x']**2 + buoy_df['y']**2) * -buoy_df['x']
-        buoy_df['Ny'] = 1/np.sqrt(buoy_df['x']**2 + buoy_df['y']**2) * -buoy_df['y']
-        buoy_df['Ex'] = 1/np.sqrt(buoy_df['x']**2 + buoy_df['y']**2) * -buoy_df['y']
-        buoy_df['Ey'] = 1/np.sqrt(buoy_df['x']**2 + buoy_df['y']**2) * buoy_df['x']
-
-        buoy_df['u'] = buoy_df['Ex'] * dxdt + buoy_df['Ey'] * dydt
-        buoy_df['v'] = buoy_df['Nx'] * dxdt + buoy_df['Ny'] * dydt
-
-        # Calculate angle, then change to 360
-        heading = np.degrees(np.angle(buoy_df.u.values + 1j*buoy_df.v.values))
-        heading = (heading + 360) % 360
-        
-        # Shift to direction from north instead of direction from east
-        heading = 90 - heading
-        heading = (heading + 360) % 360
-        buoy_df['bearing'] = heading
-        buoy_df['speed'] = np.sqrt(buoy_df['u']**2 + buoy_df['v']**2)
-        buoy_df.drop(['Nx', 'Ny', 'Ex', 'Ey'], axis=1, inplace=True)
-        
-    return buoy_df
-
-def strain_rate(buoys, data):
+def compute_strain_rate_components(buoys, data):
     """Compute the four components of strain rate for each
     date in data. 
     Columns: 'divergence', 'vorticity',
