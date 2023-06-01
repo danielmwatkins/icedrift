@@ -4,6 +4,10 @@ GPS buoys are a crucial tool for observing sea ice motion. As with any observati
 ## data cleaning
 Outlier detection is a common problem in data analysis and there are numerous sophisticated methods in existence. We focus here on outliers that are detectable by consideration of physics: time moving backwards, drifters repeating the same pattern endlessly, jumps in position that would only be possible with teleportation. The approach at this step is nondestructive: questionable data are flagged, not removed. The process is based on the data processing steps taken by Hutchings and Martini. In each case, a flag of True means that an problem has been identified.
 
+
+
+
+
 ### simple quality control
 `check_dates` looks for duplicated dates within a tolerance, as well as checking for problems in date formats and reversals in time.
 
@@ -34,6 +38,6 @@ Some ideas to include:
 Currently, I'm working on automatically identifying a common problem where one or two datapoints are slightly offset from the main buoy track. I'm trying to initially make it work with only consideration of the buoy track itself rather than using outside information (like wind speed or sea ice concentration). I've gotten it to work pretty well (but not perfectly) for a few buoys at least. 
 
 TBD short term:
-- Set up an environment yml file
-- Set up test cases for each of the outlier check functions
 - Incorporate the updates from what I did for the MOSAiC data cleaning 
+- Set up test cases for each of the outlier check functions
+- 
