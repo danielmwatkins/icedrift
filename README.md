@@ -12,7 +12,7 @@ Outlier detection is a common problem in data analysis and there are numerous so
 `check_positions` looks for duplicated lat/lon points as well as points outside the range of valid lat/lon.
 
 ### simple outlier detection
-
+`detect_outliers` contains a few methods for outlier detection: z-score, median filters
 
 
 ### complex checks
@@ -32,3 +32,8 @@ Some ideas to include:
 
 # Status
 Currently, I'm working on automatically identifying a common problem where one or two datapoints are slightly offset from the main buoy track. I'm trying to initially make it work with only consideration of the buoy track itself rather than using outside information (like wind speed or sea ice concentration). I've gotten it to work pretty well (but not perfectly) for a few buoys at least. 
+
+TBD short term:
+- Set up an environment yml file
+- Set up test cases for each of the outlier check functions
+- Incorporate the updates from what I did for the MOSAiC data cleaning 
