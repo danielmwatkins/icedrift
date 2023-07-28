@@ -80,6 +80,8 @@ def compute_velocity(buoy_df, date_index=True, rotate_uv=False, method='c'):
         dxdt.loc[bwd_endpoint] = bwd_dxdt.loc[bwd_endpoint]
         dydt.loc[fwd_endpoint] = fwd_dydt.loc[fwd_endpoint]
         dydt.loc[bwd_endpoint] = bwd_dydt.loc[bwd_endpoint]
+    else:
+        print('Method must be one of f, forward, b, backward, c, centered, fb, forward_backward, method supplied was', method) 
     
     if rotate_uv:
         # Unit vectors

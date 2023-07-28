@@ -1,15 +1,11 @@
-# drifter: a library for cleaning, interpolating, and analyzing drifting buoy data
-GPS buoys are a crucial tool for observing sea ice motion. As with any observational tool, it's important to clean the reported buoy tracks before using them in analysis. This library contains tools used to identify questionable data points, interpolate data to fixed grids, as well as tools to compute common properties, such as velocity and acceleration. The code is designed for work with Arctic drifting buoy data, in particular data from the International Arctic Buoy Program, but may be useful for other contexts as well.
+# drifter: a library for cleaning, interpolating, and analyzing drifting sea ice buoy data
+GPS buoys are a crucial tool for observing sea ice motion. As with any observational tool, it's important to clean the reported buoy tracks before using them in analysis. This library contains tools used to identify questionable data points, interpolate data to fixed grids, as well as tools to compute common properties, such as velocity and acceleration. The code is designed for work with Arctic drifting buoy data, in particular data from the International Arctic Buoy Program, but may be useful for other contexts as well. In addition, it contains an implementation of the polygon-based deformation calculation code from Hutchings et al., 2012 and 2018.
 
-## data cleaning
+## cleaning
 Outlier detection is a common problem in data analysis and there are numerous sophisticated methods in existence. We focus here on outliers that are detectable by consideration of physics: time moving backwards, drifters repeating the same pattern endlessly, jumps in position that would only be possible with teleportation. The approach at this step is nondestructive: questionable data are flagged, not removed. The process is based on the data processing steps taken by Hutchings and Martini. In each case, a flag of True means that an problem has been identified.
 
-
-
-
-
 ### simple quality control
-`check_dates` looks for duplicated dates within a tolerance, as well as checking for problems in date formats and reversals in time.
+`check_dates` looks for duplicated dates within a time tolerance, as well as checking for problems in date formats and reversals in time. Default time tolerance is 
 
 `check_gaps` returns True if there is a set of points that is shorter than a threshold and is isolated by a gap larger than a second threshold.
 
