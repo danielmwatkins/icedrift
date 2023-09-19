@@ -1,3 +1,7 @@
+# TBD
+# Set up tests for each function
+# Set up shape-check and order-check
+
 import pandas as pd
 import numpy as np
 import pyproj
@@ -61,7 +65,7 @@ def compute_velocity(buoy_df, date_index=True, rotate_uv=False, method='c'):
         dxdt = (buoy_df['x'] - buoy_df['x'].shift(1))/dt
         dydt = (buoy_df['y'] - buoy_df['y'].shift(1))/dt
 
-    elif method in ['c', 'fb', 'centered', 'forward_backward']:
+    elif method in ['c', 'fb', 'bf', 'centered', 'forward_backward']:
         fwd_df = compute_velocity(buoy_df.copy(), date_index=date_index, method='forward')
         bwd_df = compute_velocity(buoy_df.copy(), date_index=date_index, method='backward')
 
@@ -72,9 +76,11 @@ def compute_velocity(buoy_df, date_index=True, rotate_uv=False, method='c'):
             dt = (date.shift(-1) - date.shift(1)).dt.total_seconds()
             dxdt = (buoy_df['x'].shift(-1) - buoy_df['x'].shift(1))/dt
             dydt = (buoy_df['y'].shift(-1) - buoy_df['y'].shift(1))/dt
-        else:
+        elif method in ['fb', 'bf', 'forward_backward']:
             dxdt = np.sign(bwd_dxdt)*np.abs(pd.DataFrame({'f': fwd_dxdt, 'b':bwd_dxdt})).min(axis=1)
             dydt = np.sign(bwd_dydt)*np.abs(pd.DataFrame({'f': fwd_dydt, 'b':bwd_dydt})).min(axis=1)
+        else:
+            print('Unrecognized method')
 
         dxdt.loc[fwd_endpoint] = fwd_dxdt.loc[fwd_endpoint]
         dxdt.loc[bwd_endpoint] = bwd_dxdt.loc[bwd_endpoint]
@@ -150,20 +156,22 @@ def compute_along_across_components(buoy_df, uvar='u', vvar='v', umean='u_mean',
     
     # along-track component of velocity
     buoy_df['U_along'] = sign * np.sqrt(
-         buoy_df['u_along']**2 + \
-         buoy_df['v_along']**2)
+         buoy_df[uvar + '_along']**2 + \
+         buoy_df[vvar + '_along']**2)
     
     return buoy_df
 
 
-
-
 def compute_strain_rate_components(buoys, data):
     """Compute the four components of strain rate for each
-    date in data. 
-    Columns: 'divergence', 'vorticity',
-             'pure_shear', 'normal_shear',
-             'maximum_shear_strain_rate', 'area', 'shape_flag'
+    date in data. Assumes velocity has already been calculated.
+    Expects "data" to be a dictionary with a dataframe for each
+    of the buoys in the list "buoys". The dataframes in "data"
+    should have columns "u", "v", "longitude", "latitude".
+
+    Output: dataframe with columns 'divergence', 'vorticity',
+             'pure_shear', 'normal_shear', 'maximum_shear_strain_rate',
+             'area', 'shape_flag'
 
     Additional columns for the uncertainty will be added.
     """
@@ -176,7 +184,7 @@ def compute_strain_rate_components(buoys, data):
         return False
 
     def polygon_area(X, Y):
-
+        """Compute area of polygon as a sum. Should use LAEA not PS here"""
         s2 = 0.
         N = len(X)
         s1 = X[N-1]*Y[0] - X[0]*Y[N-1]
@@ -194,11 +202,37 @@ def compute_strain_rate_components(buoys, data):
             sumvar += (U[i+1] + U[i])*(X[i+1] - X[i])
         return 1/(2*A) * (sumvar + s1) * sign
 
-    X_data = pd.DataFrame({b: data[b]['x'] for b in buoys})
-    Y_data = pd.DataFrame({b: data[b]['y'] for b in buoys})
+    lon_data = pd.DataFrame({b: data[b]['longitude'] for b in buoys})
+    lat_data = pd.DataFrame({b: data[b]['latitude'] for b in buoys})
     U_data = pd.DataFrame({b: data[b]['u'] for b in buoys})
     V_data = pd.DataFrame({b: data[b]['v'] for b in buoys})
 
+    # Polar stereographic for velocity-based component
+    projIn = 'epsg:4326' # WGS 84 Ellipsoid
+    projOut = 'epsg:3413' # NSIDC North Polar Stereographic
+    transformer_ps = pyproj.Transformer.from_crs(projIn, projOut, always_xy=True)
+
+    projOut = 'epsg:6931' # NSIDC EASE 2.0 (for area calculation)
+    transformer_laea = pyproj.Transformer.from_crs(projIn, projOut, always_xy=True)
+    
+    X_data = U_data * np.nan
+    Y_data = U_data * np.nan
+    XA_data = U_data * np.nan
+    YA_data = U_data * np.nan
+    
+    for buoy in X_data.columns:
+        lon = lon_data[buoy].values
+        lat = lat_data[buoy].values
+
+        x, y = transformer_ps.transform(lon, lat)
+        X_data[buoy] = x
+        Y_data[buoy] = y
+        
+        x, y = transformer_laea.transform(lon, lat)
+        XA_data[buoy] = x
+        YA_data[buoy] = y
+    
+    
     results = []
     for date in X_data.index:
         buoys = check_order(buoys, date, data)
@@ -206,10 +240,12 @@ def compute_strain_rate_components(buoys, data):
         
         X = X_data.loc[date, :]
         Y = Y_data.loc[date, :]
+        XA = XA_data.loc[date, :]
+        YA = YA_data.loc[date, :]        
         U = U_data.loc[date, :]
         V = V_data.loc[date, :]
         
-        A = polygon_area(X, Y)
+        A = polygon_area(XA, YA)
             
         dudx = accel(Y, U, A, 1)
         dudy = accel(X, U, A, -1)

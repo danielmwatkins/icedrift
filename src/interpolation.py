@@ -103,7 +103,8 @@ def interpolate_buoy_track(buoy_df, xvar='longitude', yvar='latitude',
         buoy_df[yvar] = y
     else:
         reproject = False
-    
+
+    # Force the time to start at 0 minutes after the hour
     t = pd.Series(buoy_df.index)
     dt = pd.to_timedelta(t - t.min()).dt.total_seconds()
     tnew = pd.date_range(start=t.min().round(freq), end=t.max().round(freq), freq=freq).round(freq)

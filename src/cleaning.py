@@ -229,7 +229,7 @@ def standard_qc(buoy_df,
     
     # Return None if there's insufficient data
     if len(buoy_df) < min_size:
-        print('Observations in bounding box', n, 'less than min size', min_size)
+        print('Observations in bounding box', len(buoy_df), 'less than min size', min_size)
         return None
 
     flag_gaps = check_gaps(buoy_df,
