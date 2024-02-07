@@ -1,18 +1,16 @@
-name: drifter
+name: icedrift
 channels:
   - conda-forge
   - defaults
 dependencies:
-  - cartopy
-  - h5py
   - jupyter
   - metpy
-  - netcdf4
   - numpy
   - pandas
-  - proplot
   - scikit-learn  
   - scipy
   - statsmodels
-  - xarray
-prefix: /opt/miniconda3/envs/drifter
+  - pytest
+  - sphinx
+  - python=3.10
+prefix: /opt/miniconda3/envs/icedrift
