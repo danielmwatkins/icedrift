@@ -1,0 +1,3 @@
+.venv/
+src/icedrift.egg-info/
+src/icedrift/__pycache__/

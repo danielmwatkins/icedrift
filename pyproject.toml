@@ -1,0 +1,82 @@
+[project]
+name = "icedrift"
+
+version="0.1.0"
+
+description = "Library for processing sea ice drifting buoys ."
+
+readme = "README.md"
+
+requires-python = ">=3.9"
+
+license = {file = "LICENSE"}
+
+keywords = ["ice drift", "geospatial", "oceanography", "sea ice"] # TODO: Add keywords
+
+authors = [
+  { name = "Daniel Watkins", email = "name@email.com" } # TODO: Add email
+]
+
+classifiers = [
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3 :: Only",
+]
+
+# This field lists other packages that your project depends on to run.
+# Any package you put here will be installed by pip when your project is
+# installed, so they must be valid existing projects.
+#
+# For an analysis of this field vs pip's requirements files see:
+# https://packaging.python.org/discussions/install-requires-vs-requirements/    # noqa
+dependencies = [ # TODO: Ensure these versions work. CP
+  "numpy >=1.26.3, <2.0.0",
+  "pandas >=2.2.0, <3.0.0",
+  "pyproj >=3.2.0, <4.0.0",
+  "scipy >=1.7.0, <2.0.0",  
+]
+
+# List additional groups of dependencies   here (e.g. development
+# dependencies). Users will be able to install these using the "extras"
+# syntax, for example:
+#
+#   $ pip install sampleproject[dev]
+#
+# Similar to `dependencies` above, these must be valid existing
+# projects.
+
+[project.optional-dependencies] # TODO: Add optional dependencies
+dev = [
+  "check-manifest",
+  "black",
+  "icedrift[test]" # This is a reference to the test dependencies below. So installing dev deps will also install test deps
+]
+test = [
+  "coverage",
+  "pytest >=7.4.4, <8.0.0",
+  "pytest-xdist >=3.5.0, <4.0.0"
+]
+
+[project.urls]
+"Homepage" = "https://github.com/danielmwatkins/icedrift"
+"Bug Reports" = "https://github.com/danielmwatkins/icedrift/issues"
+"Source" = "https://github.com/danielmwatkins/icedrift"
+
+[project.scripts]
+# icedrift = "icedrift.app:main" # TODO add commands (optional)
+
+[tool.setuptools]
+# If there are data files included in your packages that need to be
+# installed, specify them here.
+# TODO: ADD ANY DATA FILES WE WANT TO HAVE
+# package_data = { "my_package": ["data/*.dat"] }
+
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[build-system]
+requires = ["setuptools>=43.0.0", "setuptools_scm>=8", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools_scm]
