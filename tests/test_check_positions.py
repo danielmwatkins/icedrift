@@ -1,3 +1,4 @@
+import icedrift
 from icedrift.cleaning import check_positions
 import pandas as pd
 import numpy as np
