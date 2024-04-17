@@ -11,9 +11,9 @@ TBD: Currently, columns are added. This should be optional.
 import pandas as pd
 import numpy as np
 import pyproj
-from .analysis import compute_velocity
+from icedrift.analysis import compute_velocity
 
-def check_positions(buoy_df, pairs_only=False,
+def check_positions(data, pairs_only=False,
                    latname='latitude', lonname='longitude'):
     """Looks for duplicated or nonphysical position data. Defaults to masking any 
     data with exact matches in latitude or longitude. Setting pairs_only to false 
@@ -21,8 +21,8 @@ def check_positions(buoy_df, pairs_only=False,
     as a pair.
     """
 
-    lats = buoy_df[latname].round(10)
-    lons = buoy_df[lonname].round(10)
+    lats = data[latname].round(10)
+    lons = data[lonname].round(10)
     
     invalid_lats = np.abs(lats) > 90
     if np.any(lons < 0):
@@ -35,7 +35,7 @@ def check_positions(buoy_df, pairs_only=False,
     repeated = lats.duplicated(keep='first') | lons.duplicated(keep='first')
     
     duplicated = pd.Series([(x, y) for x, y in zip(lons, lats)],
-                                  index=buoy_df.index).duplicated(keep='first')
+                                  index=data.index).duplicated(keep='first')
     
     if pairs_only:
         return duplicated | invalid

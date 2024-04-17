@@ -1,4 +1,7 @@
-# drifter: a library for cleaning, interpolating, and analyzing drifting sea ice buoy data
+# icedrift: a library for cleaning, interpolating, and analyzing drifting sea ice trajectory data
+The IceDrift library contains tools for cleaning, regridding, and analysing sea ice trajectory data, in particular data from drifting buoys, ice stations, and tracked ice floes.
+
+
 GPS buoys are a crucial tool for observing sea ice motion. As with any observational tool, it's important to clean the reported buoy tracks before using them in analysis. This library contains tools used to identify questionable data points, interpolate data to fixed grids, as well as tools to compute common properties, such as velocity and acceleration. The code is designed for work with Arctic drifting buoy data, in particular data from the International Arctic Buoy Program, but may be useful for other contexts as well. In addition, it contains an implementation of the polygon-based deformation calculation code from Hutchings et al., 2012 and 2018.
 
 ## cleaning
