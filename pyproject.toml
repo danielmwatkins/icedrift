@@ -3,7 +3,7 @@ name = "icedrift"
 
 version="0.1.0"
 
-description = "Library for processing sea ice drifting buoys ."
+description = "Library for processing sea ice trajectories"
 
 readme = "README.md"
 
@@ -14,7 +14,7 @@ license = {file = "LICENSE"}
 keywords = ["ice drift", "geospatial", "oceanography", "sea ice"] # TODO: Add keywords
 
 authors = [
-  { name = "Daniel Watkins", email = "name@email.com" } # TODO: Add email
+  { name = "Daniel Watkins", email = "daniel_watkins@brown.edu" } # TODO: Add email
 ]
 
 classifiers = [
@@ -70,7 +70,6 @@ test = [
 # installed, specify them here.
 # TODO: ADD ANY DATA FILES WE WANT TO HAVE
 # package_data = { "my_package": ["data/*.dat"] }
-
 
 [tool.setuptools.packages.find]
 where = ["src"]
