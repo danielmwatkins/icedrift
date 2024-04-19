@@ -9,7 +9,7 @@ readme = "README.md"
 
 requires-python = ">=3.9"
 
-license = {file = "LICENSE"}
+license = {file = "LICENSE"} # TODO: Add license file
 
 keywords = ["ice drift", "geospatial", "oceanography", "sea ice"] # TODO: Add keywords
 
@@ -49,6 +49,7 @@ dependencies = [ # TODO: Ensure these versions work. CP
 dev = [
   "check-manifest",
   "black",
+  "sphinx >=4.2.0, <5.0.0",
   "icedrift[test]" # This is a reference to the test dependencies below. So installing dev deps will also install test deps
 ]
 test = [
@@ -72,7 +73,7 @@ test = [
 # package_data = { "my_package": ["data/*.dat"] }
 
 [tool.setuptools.packages.find]
-where = ["src/icedrift"]
+where = ["src"]
 
 [build-system]
 requires = ["setuptools>=43.0.0", "setuptools_scm>=8", "wheel"]

@@ -1,3 +1,5 @@
 .venv/
 src/icedrift.egg-info/
 src/icedrift/__pycache__/
+src/icedrift/icedrift.egg-info/
+tests/__pycache__/

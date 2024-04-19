@@ -7,8 +7,7 @@ TBD: Test handling of cases with bad lat/lon data
 import pandas as pd
 import numpy as np
 import sys
-sys.path.append('../../drifter') # learn right way to do this inside a package
-import src.cleaning as clean
+import icedrift.cleaning as clean
 
 df = pd.DataFrame({'date': pd.date_range('2020-01-01',
                                  '2020-01-01 06:00',
