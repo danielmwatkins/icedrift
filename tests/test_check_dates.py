@@ -20,20 +20,21 @@ df['gap_flag'] = check_gaps(df, date_col='date',
                                   threshold_gap='2H',
                                   threshold_segment=1)
 
-def test_date_false_positive():
+def test_date_false_positive(df):
     assert ~df.loc[2, 'date_flag'], 'Flagged good date'
     
-def test_date_duplicates():
+def test_date_duplicates(df):
     assert df.loc[3, 'date_flag'], 'Missed exact duplicate time'
     assert df.loc[6, 'date_flag'], 'Missed duplicate time within tolerance'    
     
-def test_date_reversed():
+def test_date_reversed(df):
     assert df.loc[9, 'date_flag'], 'Missed reversed time'    
 
 # add gap
-df.loc[8:, 'date'] += pd.to_timedelta('6H')
-df.loc[9:, 'date'] += pd.to_timedelta('6H')
-def test_gaps():
+df.loc[8:, 'date'] += pd.to_timedelta('6h')
+df.loc[9:, 'date'] += pd.to_timedelta('6h')
+
+def test_gaps(df):
     assert df.loc[8, 'gap_flag'], 'Missed solitary data point'
 
 

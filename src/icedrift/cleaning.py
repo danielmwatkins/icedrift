@@ -44,7 +44,7 @@ def check_positions(data, pairs_only=False,
          return repeated | duplicated | invalid
 
 
-def check_dates(buoy_df, precision='1min', date_col=None):
+def check_dates(data, precision='1min', date_col=None):
     """Check if there are reversals in the time or duplicated dates. Optional: check
     whether data are isolated in time based on specified search windows and the threshold
     for the number of buoys within the search windows. Dates are rounded to <precision>,
@@ -53,11 +53,11 @@ def check_dates(buoy_df, precision='1min', date_col=None):
     """
 
     if date_col is None:
-        date_values = buoy_df.index.values
+        date_values = data.index.values
         date = pd.Series(pd.to_datetime(date_values).round(precision),
                      index=buoy_df.index)
     else:
-        date = pd.to_datetime(buoy_df[date_col]).round(precision)
+        date = pd.to_datetime(data[date_col]).round(precision)
     duplicated_times = date.duplicated(keep='first')
     
     time_till_next = date.shift(-1) - date
@@ -184,6 +184,7 @@ def standard_qc(buoy_df,
                 lat_range=(65, 90),
                 max_speed=1.5,
                 speed_window='3D',
+                speed_sigma=4,
                 verbose=False):
     """QC steps applied to all buoy data. Wrapper for functions in drifter.clean package.
     min_size = minimum number of observations
@@ -229,7 +230,7 @@ def standard_qc(buoy_df,
     
     # Return None if there's insufficient data
     if len(buoy_df) < min_size:
-        print('Observations in bounding box', len(buoy_df), 'less than min size', min_size)
+        print('Observations in bounding box', n, 'less than min size', min_size)
         return None
 
     flag_gaps = check_gaps(buoy_df,
@@ -238,9 +239,8 @@ def standard_qc(buoy_df,
     buoy_df = buoy_df.loc[~flag_gaps].copy()
     
     
-    
     # Check speed
-    flag_speed = check_speed(buoy_df, window=speed_window, max_speed=max_speed)
+    flag_speed = check_speed(buoy_df, window=speed_window, max_speed=max_speed, sigma=speed_sigma)
     buoy_df = buoy_df.loc[~flag_speed].copy()
 
     if len(buoy_df) < min_size:
@@ -249,12 +249,10 @@ def standard_qc(buoy_df,
     else:
         buoy_df_init['flag'] = True
         buoy_df_init.loc[buoy_df.index, 'flag'] = False
-        return buoy_df_init    
+        return buoy_df_init
+
     
-    
-    
-    
-    
+     
     
     
 def fit_splines(date, data, xvar='x', yvar='y', zvar=None, df=25):
@@ -372,8 +370,6 @@ def identify_outliers(buoy_df, error_thresh, fit_margin, sigma=6, detailed_retur
     test_dates = buoy_df[['anom_dist', 'speed']][buoy_df['anom_dist'] > sigma*anom_std]
     test_dates = test_dates.sort_values('anom_dist')[::-1]
 
-    #anom_above_threshold = buoy_df['anom_dist'] > (buoy_df.where(buoy_df.anom_dist > 0)['anom_dist']).rolling('30D', center=True).median()*2
-    #speed_above_threshold = buoy_df['speed'] > buoy_df['speed'].rolling('30D', center=True).median()*2
     anom_local_max = buoy_df['anom_dist'] == buoy_df['anom_dist'].rolling(fit_margin, center=True).max()
     speed_local_max = buoy_df['speed'] == buoy_df['speed'].rolling(fit_margin, center=True).max()
 
