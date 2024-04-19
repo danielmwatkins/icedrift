@@ -15,13 +15,12 @@ df.loc[6, 'date'] = df.loc[5, 'date'] + pd.to_timedelta('30sec')
 df.loc[9, 'date'] = df.loc[7, 'date'] + pd.to_timedelta('1min')
 
 df['date_flag'] = check_dates(df, date_col='date')
+print(df)
 
 def test_date_false_positive():
     assert ~df.loc[2, 'date_flag'], 'Flagged good date'
 
 def test_date_duplicates():
-    print(df.loc[3, 'date_flag'])
-    print(df.loc[6, 'date_flag'])
     assert df.loc[3, 'date_flag'], 'Missed exact duplicate time'
     assert df.loc[6, 'date_flag'], 'Missed duplicate time within tolerance'    
 
