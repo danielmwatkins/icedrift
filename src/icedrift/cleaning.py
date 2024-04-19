@@ -68,9 +68,10 @@ def check_dates(data, precision='1min', date_col=None):
     return negative_timestep | duplicated_times
     
 
-def check_gaps(data, threshold_gap='4H', threshold_segment=12, date_col=None):
+def check_gaps(data, threshold_gap='4h', threshold_segment=12, date_col=None):
     """Segments the data based on a threshold of <threshold_gap>. Segments shorter
-    than <threshold_segment> are flagged."""
+    than <threshold_segment> are flagged. If <date_col> not specified, then assumes
+    that the data has a time index."""
     
     if date_col is None:
         date_values = data.index.values
@@ -95,7 +96,7 @@ def check_gaps(data, threshold_gap='4H', threshold_segment=12, date_col=None):
     return flag
 
 
-def check_speed(buoy_df, date_index=True, window='3D', sigma=5, max_speed=1.5):
+def check_speed(buoy_df, date_index=True, window='3day', sigma=5, max_speed=1.5):
     """If the position of a point is randomly offset from the path, there will
     be a signature in the velocity. The size of the anomaly will differ depending
     on the time resolution. 
