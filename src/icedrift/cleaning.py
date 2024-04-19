@@ -55,7 +55,7 @@ def check_dates(data, precision='1min', date_col=None):
     if date_col is None:
         date_values = data.index.values
         date = pd.Series(pd.to_datetime(date_values).round(precision),
-                     index=buoy_df.index)
+                     index=data.index)
     else:
         date = pd.to_datetime(data[date_col]).round(precision)
     duplicated_times = date.duplicated(keep='first')
@@ -68,19 +68,19 @@ def check_dates(data, precision='1min', date_col=None):
     return negative_timestep | duplicated_times
     
 
-def check_gaps(buoy_df, threshold_gap='4H', threshold_segment=12, date_col=None):
+def check_gaps(data, threshold_gap='4H', threshold_segment=12, date_col=None):
     """Segments the data based on a threshold of <threshold_gap>. Segments shorter
     than <threshold_segment> are flagged."""
     
     if date_col is None:
-        date_values = buoy_df.index.values
+        date_values = data.index.values
         date = pd.Series(pd.to_datetime(date_values),
-                     index=buoy_df.index)
+                     index=data.index)
     else:
-        date = pd.to_datetime(buoy_df[date_col])
+        date = pd.to_datetime(data[date_col])
     
     time_till_next = date.shift(-1) - date
-    segment = pd.Series(0, index=buoy_df.index)
+    segment = pd.Series(0, index=data.index)
     counter = 0
     tg = pd.to_timedelta(threshold_gap)
     for t in segment.index:
@@ -89,8 +89,8 @@ def check_gaps(buoy_df, threshold_gap='4H', threshold_segment=12, date_col=None)
             counter += 1
     
     # apply_filter
-    new = buoy_df.groupby(segment).filter(lambda x: len(x) > threshold_segment).index
-    flag = pd.Series(True, index=buoy_df.index)
+    new = data.groupby(segment).filter(lambda x: len(x) > threshold_segment).index
+    flag = pd.Series(True, index=data.index)
     flag.loc[new] = False
     return flag
 
