@@ -27,6 +27,7 @@ Simple outlier detection
 Complex outlier detection
 ----------------
 These tools use statistical methods to identify outliers.
+
 - LOESS method
 - Multi-trajectory approaches
 

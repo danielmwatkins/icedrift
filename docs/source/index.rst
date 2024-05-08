@@ -17,4 +17,6 @@ Contents
 
    getting_started
    cleaning
+   interpolation
+   analysis
    api
