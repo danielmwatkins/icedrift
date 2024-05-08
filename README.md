@@ -1,7 +1,5 @@
 # icedrift: a library for cleaning, interpolating, and analyzing drifting sea ice trajectory data
-The IceDrift library contains tools for cleaning, regridding, and analysing sea ice trajectory data, in particular data from drifting buoys, ice stations, and tracked ice floes. This library contains tools used to identify questionable data points, interpolate data to fixed grids, as well as tools to compute common properties, such as velocity and acceleration. The code is designed for work with Arctic drifting buoy data such as data from the International Arctic Buoy Program (IABP) and the Multidisciplinary Drifting Observatory for the Study of Arctic Climate (MOSAiC).
-
-In addition, it contains an implementation of the polygon-based deformation calculation code from Hutchings et al., 2012 and 2018.
+The IceDrift library contains tools for cleaning, regridding, and analysing sea ice trajectory data, in particular data from drifting buoys, ice stations, and tracked ice floes. This library contains tools used to identify questionable data points, interpolate data to fixed grids. The analysis software includes tools to compute common derived properties, such as velocity and acceleration, and more complex measures such as strain rates and dispersion metrics. The code is designed for work with Arctic drifting buoy data such as data from the International Arctic Buoy Program (IABP), the Multidisciplinary Drifting Observatory for the Study of Arctic Climate (MOSAiC), and the Sea Ice Dynamic Experiment (SIDEx). Additional data that can be processed with IceDrift includes tracked floes from the Ice Floe Tracker (IFT).
 
 ## cleaning
 Outlier detection is a common problem in data analysis and there are numerous sophisticated methods in existence. We focus here on outliers that are detectable by consideration of physics: time moving backwards, drifters repeating the same pattern endlessly, jumps in position that would only be possible with teleportation. The approach at this step is nondestructive: questionable data are flagged, not removed. The process is based on the data processing steps taken by Hutchings and Martini. In each case, a flag of True means that an problem has been identified.
@@ -42,6 +40,7 @@ Some ideas to include:
 - rotary spectral analysis, to investigate tidal and inertial oscillations  
 - dispersion (single, pair, or triplet)  
 - deformation (polygons, based on Jenny's approach)
+In addition, it contains an implementation of the polygon-based deformation calculation code from Hutchings et al., 2012 and 2018.
 
 # Status
 Currently, I'm working on automatically identifying a common problem where one or two datapoints are slightly offset from the main buoy track. I'm trying to initially make it work with only consideration of the buoy track itself rather than using outside information (like wind speed or sea ice concentration). I've gotten it to work pretty well (but not perfectly) for a few buoys at least. 
