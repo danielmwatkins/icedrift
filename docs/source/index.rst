@@ -15,5 +15,6 @@ Contents
 
 .. toctree::
 
-   usage
+   getting_started
+   cleaning
    api

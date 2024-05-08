@@ -1,13 +1,14 @@
 # Configuration file for the Sphinx documentation builder.
 
 # -- Project information
+# Add co-authors
+project = 'IceDrift'
+copyright = '2024, Daniel M. Watkins'
+author = 'Daniel M. Watkins'
 
-project = 'Lumache'
-copyright = '2021, Graziella'
-author = 'Graziella'
-
-release = '0.1'
-version = '0.1.0'
+# -- Update when first release is ready
+release = '0.0'
+version = '0.0.0'
 
 # -- General configuration
 
