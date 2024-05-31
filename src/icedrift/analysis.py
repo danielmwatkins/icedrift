@@ -162,64 +162,126 @@ def compute_along_across_components(buoy_df, uvar='u', vvar='v', umean='u_mean',
     return buoy_df
 
 
-def compute_strain_rate_components(buoys, data):
-    """Compute the four components of strain rate for each
-    date in data. Assumes velocity has already been calculated.
-    Expects "data" to be a dictionary with a dataframe for each
-    of the buoys in the list "buoys". The dataframes in "data"
-    should have columns "u", "v", "longitude", "latitude".
+def compute_strain_rate_components(buoys, data,
+                                   position_uncertainty=10,
+                                   time_delta='1h'):
+    """Compute the four components of strain rate and corresponding
+    uncertainties from buoy trajectories. 
+    
+    buoys: list containing labels for each buoy tracing polygon edges.
+    data: dictionary with a dataframe for each of the labels in the list
+          "buoys". The dataframes in "data" should have columns "longitude", "latitude".
+    position_uncertainty: position uncertainty expressed as a standard
+            deviation in meters. Default 10.
+
+    time_delta: observation period as a string interpretable by Pandas
+            (e.g., 1h = 1 hour). Default 1h.
 
     Output: dataframe with columns 'divergence', 'vorticity',
              'pure_shear', 'normal_shear', 'maximum_shear_strain_rate',
-             'area', 'shape_flag'
-
-    Additional columns for the uncertainty will be added.
+             'area', and uncertainties for each. 
     """
     def check_order(buoys, date, data):
         """Pass through. Right hand rule enforcement tbd"""
+        # Right now, the order is checked later on by looking at the area.
+        # It would be good to check it earlier and raise an error.
         return buoys
 
     def check_shape(buoys, date, data):
         """Pass through. Return True if the shape is too skewed."""
+        # TBD!
         return False
 
     def polygon_area(X, Y):
         """Compute area of polygon as a sum. Should use LAEA not PS here"""
-        s2 = 0.
+        sumvar = 0.
+        N = len(X)        
+        for i in range(N):
+            sumvar += X[i]*Y[(i+1) % N] - Y[i]*X[(i+1) % N]
+        return sumvar*0.5
+    
+    def polygon_area_uncertainty(X, Y, position_uncertainty):
+        """Compute the area uncertainty following Dierking et al. 2020"""
         N = len(X)
-        s1 = X[N-1]*Y[0] - X[0]*Y[N-1]
-        for i in range(N - 1):
-            s2 += X[i]*Y[i+1] - Y[i]*X[i+1]
-        return (s2 + s1)*0.5
+        S = 0
+        for i in range(N):
+            S += (X[(i+1) % N] - X[(i-1) % N])**2 + \
+                 (Y[(i+1) % N] - Y[(i-1) % N])**2
+        return np.sqrt(0.25*position_uncertainty**2*S)
+
+    def gradvel_uncertainty(X, Y, U, V, A, position_uncertainty,
+                            time_delta, vel_var='u', x_var='x'):
+        """Equation 19 from Dierking et al. 2020 assuming uncertainty 
+        in position is same in both x and y. Also assuming that there
+        is no uncertainty in time. Default returns standard deviation
+        uncertainty for dudx.
+        """
+        sigma_A = polygon_area_uncertainty(X, Y, position_uncertainty)
+        sigma_X = position_uncertainty
+        
+        # velocity uncertainty
+        if vel_var=='u':
+            u = U.copy()
+        else:
+            u = V.copy()
+        if x_var == 'x':
+            # To get dudx, integrate over Y
+            x = Y.copy()
+        else:
+            x = X.copy()
+        
+        sigma_U = 2*sigma_X**2/time_delta**2
+        
+        N = len(X)
+        S1, S2, S3 = 0, 0, 0
+        for i in range(N):
+            # the modulus here makes the calculation wrap around to the beginning
+            S1 += (u[(i+1) % N] + u[(i-1) % N])**2 * \
+                  (x[(i+1) % N] - x[(i-1) % N])**2
+            S2 += (x[(i+1) % N] - x[(i-1) % N])**2
+            S3 += (u[(i+1) % N] + u[(i-1) % N])**2
+            
+        var_ux = sigma_A**2/(4*A**4)*S1 + \
+                 sigma_U**2/(4*A**2)*S2 + \
+                 sigma_X**2/(4*A**2)*S3
+
+        return np.sqrt(var_ux)
 
     def accel(X, U, A, sign):
         """Computes spatial derivative of velocity for 
         deformation."""
         N = len(X)
         sumvar = 0
-        s1 = (U[0] + U[N-1])*(X[0] - X[N-1])
-        for i in range(N - 1):
-            sumvar += (U[i+1] + U[i])*(X[i+1] - X[i])
-        return 1/(2*A) * (sumvar + s1) * sign
+        for i in range(N):
+            sumvar += (U[(i+1) % N] + U[i])*(X[(i+1) % N] - X[i])
+        return 1/(2*A) * sumvar * sign
 
     lon_data = pd.DataFrame({b: data[b]['longitude'] for b in buoys})
     lat_data = pd.DataFrame({b: data[b]['latitude'] for b in buoys})
-    U_data = pd.DataFrame({b: data[b]['u'] for b in buoys})
-    V_data = pd.DataFrame({b: data[b]['v'] for b in buoys})
-
+    time_delta = pd.to_timedelta(time_delta).total_seconds()
+    
     # Polar stereographic for velocity-based component
+    # Potential improvement: use a local stereographic projection 
+    # instead of the North Polar stereographic
+    
     projIn = 'epsg:4326' # WGS 84 Ellipsoid
     projOut = 'epsg:3413' # NSIDC North Polar Stereographic
     transformer_ps = pyproj.Transformer.from_crs(projIn, projOut, always_xy=True)
 
     projOut = 'epsg:6931' # NSIDC EASE 2.0 (for area calculation)
     transformer_laea = pyproj.Transformer.from_crs(projIn, projOut, always_xy=True)
-    
-    X_data = U_data * np.nan
-    Y_data = U_data * np.nan
-    XA_data = U_data * np.nan
-    YA_data = U_data * np.nan
-    
+
+    # Initialize the dataframes for position data
+    # X, Y, U, and V are in polar stereographic coordinates
+    # XA and YA are the positions in Lambert Azimuthal Equal Area for area calculations
+    X_data = lon_data * np.nan
+    Y_data = lon_data * np.nan
+    XA_data = lon_data * np.nan
+    YA_data = lon_data * np.nan
+    U_data = lon_data * np.nan
+    V_data = lon_data * np.nan
+
+    # Populate the position and velocity dataframes
     for buoy in X_data.columns:
         lon = lon_data[buoy].values
         lat = lat_data[buoy].values
@@ -228,43 +290,95 @@ def compute_strain_rate_components(buoys, data):
         X_data[buoy] = x
         Y_data[buoy] = y
         
-        x, y = transformer_laea.transform(lon, lat)
-        XA_data[buoy] = x
-        YA_data[buoy] = y
+        xa, ya = transformer_laea.transform(lon, lat)
+        XA_data[buoy] = xa
+        YA_data[buoy] = ya
+        
+        buoy_df = pd.DataFrame({'longitude': lon,
+                                'latitude': lat,
+                                'x': x,
+                                'y': y}, index=X_data.index)
+        buoy_df = compute_velocity(buoy_df)
+        U_data[buoy] = buoy_df['u']
+        V_data[buoy] = buoy_df['v']
+
+    # Extract numpy arrays
+    X = X_data.T.values
+    Y = Y_data.T.values
+    XA = XA_data.T.values
+    YA = YA_data.T.values        
+    U = U_data.T.values
+    V = V_data.T.values
+
+    A = polygon_area(XA, YA)
+
+    # Check order of points
+    # Can't handle reversal partway through though!
+    if np.all(A[~np.isnan(A)] < 0):
+        print('Reversing order')
+        X = X[::-1,:]
+        XA = XA[::-1,:]
+        Y = Y[::-1,:]
+        YA = YA[::-1,:]
+        U = U[::-1,:]
+        V = V[::-1,:]
+        
+    if np.any(A[~np.isnan(A)] < 0) & np.any(A[~np.isnan(A)] > 0):
+        print('Warning! Sign of area reverses')
+        
+    A = polygon_area(XA, YA)
+
+    dudx = accel(Y, U, A, 1)
+    dudy = accel(X, U, A, -1)
+    dvdx = accel(Y, V, A, 1)
+    dvdy = accel(X, V, A, -1)
+
+    # After getting the gradients, we can calculate the strain rate components
+    divergence = dudx + dvdy
+    vorticity = dvdx - dudy
+    pure_shear = dudy + dvdx
+    normal_shear = dudx - dvdy
+    maximum_shear_strain_rate = np.sqrt(pure_shear**2 + normal_shear**2)
+    total_deformation = np.sqrt(divergence**2 + maximum_shear_strain_rate**2)
+
+    # Finally we calculate the uncertainty in each component
+    sigma_A = polygon_area_uncertainty(X, Y, position_uncertainty)
+    sigma_dudx = gradvel_uncertainty(X, Y, U, V, A,
+                                     position_uncertainty,
+                                     time_delta, vel_var='u', x_var='x')
+    sigma_dvdx = gradvel_uncertainty(X, Y, U, V, A,
+                                     position_uncertainty,
+                                     time_delta, vel_var='v', x_var='x')
+    sigma_dudy = gradvel_uncertainty(X, Y, U, V, A,
+                                     position_uncertainty,
+                                     time_delta, vel_var='u', x_var='y')
+    sigma_dvdy = gradvel_uncertainty(X, Y, U, V, A,
+                                     position_uncertainty,
+                                     time_delta, vel_var='v', x_var='y')
+
+    sigma_div = np.sqrt(sigma_dudx**2 + sigma_dvdy**2)
+    sigma_vrt = np.sqrt(sigma_dvdx**2 + sigma_dudy**2)
+    sigma_shr = np.sqrt((normal_shear/maximum_shear_strain_rate)**2 * \
+                        (sigma_dudx**2 + sigma_dvdy**2) + \
+                        (pure_shear/maximum_shear_strain_rate)**2 * \
+                        (sigma_dudy**2 + sigma_dvdx**2))
+    sigma_tot = np.sqrt((maximum_shear_strain_rate/total_deformation)**2 * \
+                        sigma_shr**2 + \
+                        (divergence/total_deformation)**2 * sigma_vrt**2)
     
-    
-    results = []
-    for date in X_data.index:
-        buoys = check_order(buoys, date, data)
-        flag = check_shape(buoys, date, data)
-        
-        X = X_data.loc[date, :]
-        Y = Y_data.loc[date, :]
-        XA = XA_data.loc[date, :]
-        YA = YA_data.loc[date, :]        
-        U = U_data.loc[date, :]
-        V = V_data.loc[date, :]
-        
-        A = polygon_area(XA, YA)
-            
-        dudx = accel(Y, U, A, 1)
-        dudy = accel(X, U, A, -1)
-        dvdx = accel(Y, V, A, 1)
-        dvdy = accel(X, V, A, -1)
-        
-        results.append([
-            dudx + dvdy, #div
-            dvdx - dudy, #vor
-            dudy + dvdx, #pure
-            dudx - dvdy, #normal
-            0.5*np.sqrt((dudx - dvdy)**2 + (dudy + dvdx)**2), #epsilon_ii
-            A,
-            flag
-        ])
-            
+    # Results are arranged in a dataframe
     return pd.DataFrame(
-        np.vstack(results),
-        columns=['divergence', 'vorticity', 'pure_shear',
-                 'normal_shear', 'maximum_shear_strain_rate',
-                 'area', 'shape_flag'],
+        {'divergence': divergence,
+         'vorticity': vorticity,
+         'pure_shear': pure_shear,
+         'normal_shear': normal_shear,
+         'maximum_shear_strain_rate': maximum_shear_strain_rate,
+         'total_deformation': total_deformation,
+         'area': A,
+         'uncertainty_area': sigma_A,
+         'uncertainty_divergence': sigma_div,
+         'uncertainty_vorticity': sigma_vrt,
+         'uncertainty_shear': sigma_shr,
+         'uncertainty_total': sigma_tot,
+         'shape_flag': np.sign(A)}, # replace shape flag with metric for polygon shape
         index=X_data.index)
