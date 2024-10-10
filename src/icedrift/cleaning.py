@@ -127,7 +127,6 @@ def check_speed(buoy_df, date_index=True, window='3day', sigma=5, max_speed=1.5)
         date = pd.to_datetime(buoy_df.date).round('1min')
 
     window = pd.to_timedelta(window)
-    
     n_min = 0.4*buoy_df.rolling(window, center=True).count()['latitude'].median()
 
     if n_min > 0:
@@ -200,15 +199,22 @@ def standard_qc(buoy_df,
     2. Check for duplicated positions with check_positions() with pairs_only set to True.
     3. Check for gaps and too-short segments using check_gaps()
     4. Check for anomalous speeds using check_speed()
+    5. Mark all bad entries with a True flag column
     """
-    buoy_df_init = buoy_df.copy()
-    n = len(buoy_df)
-    flag_date = check_dates(buoy_df)
-    flag_pos = check_positions(buoy_df, pairs_only=True)
-    buoy_df = buoy_df.loc[~(flag_date | flag_pos)].copy()
+    buoy_df_init = buoy_df.reset_index()
+    buoy_df_init['flag'] = True
+
+    n = len(buoy_df_init)
+    flag_date = check_dates(buoy_df_init, date_col="timestamp")
+    flag_pos = check_positions(buoy_df_init, pairs_only=True)
+    good_buoy_df = buoy_df_init.loc[~(flag_date | flag_pos)].copy()
+
+    buoy_df_init = buoy_df_init.set_index("timestamp")
+    good_buoy_df = good_buoy_df.set_index("timestamp")
+
     if verbose:
-        if len(buoy_df) < n:
-            print('Initial size', n, 'reduced to', len(buoy_df))
+        if len(good_buoy_df) < n:
+            print('Initial size', n, 'reduced to', len(good_buoy_df))
 
     def bbox_select(df):
         """Restricts the dataframe to data within
@@ -221,36 +227,46 @@ def standard_qc(buoy_df,
         lon_idx = (lon > lon_range[0]) & (lon < lon_range[1])
         lat_idx = (lat > lat_range[0]) & (lat < lat_range[1])
         idx = df.loc[lon_idx & lat_idx].index
-        return df.loc[(df.index >= idx[0]) & (df.index <= idx[-1])].copy()
+        if len(idx) > 0:
+            return df.loc[(df.index >= idx[0]) & (df.index <= idx[-1])].copy()
         
-    buoy_df = bbox_select(buoy_df)
+    good_buoy_df = bbox_select(good_buoy_df)
 
-    if verbose:
-        if len(buoy_df) < n:
-            print('Initial size', n, 'reduced to', len(buoy_df))
-    
-    # Return None if there's insufficient data
-    if len(buoy_df) < min_size:
-        print('Observations in bounding box', n, 'less than min size', min_size)
+    # Return None for insufficient data
+
+    if good_buoy_df is None or len(good_buoy_df) < min_size:
+        if verbose:
+            print('Observations in bounding box', n, 'less than min size', min_size)
         return None
 
-    flag_gaps = check_gaps(buoy_df,
+
+    flag_gaps = check_gaps(good_buoy_df,
                            threshold_gap=gap_threshold,
                            threshold_segment=segment_length)
-    buoy_df = buoy_df.loc[~flag_gaps].copy()
+    good_buoy_df = good_buoy_df.loc[~flag_gaps].copy()
     
-    
-    # Check speed
-    flag_speed = check_speed(buoy_df, window=speed_window, max_speed=max_speed, sigma=speed_sigma)
-    buoy_df = buoy_df.loc[~flag_speed].copy()
-
-    if len(buoy_df) < min_size:
+    if len(good_buoy_df) < min_size:
+        if verbose:
+            print('Observations post gap-flag', n, 'less than min size', min_size)
         return None
     
-    else:
-        buoy_df_init['flag'] = True
-        buoy_df_init.loc[buoy_df.index, 'flag'] = False
-        return buoy_df_init
+    # Check speed
+    flag_speed = check_speed(good_buoy_df, window=speed_window, max_speed=max_speed, sigma=speed_sigma)
+    good_buoy_df = good_buoy_df.loc[~flag_speed].copy()
+
+    if len(good_buoy_df) < min_size:
+        if verbose:
+            print('Observations post speed_flag', n, 'less than min size', min_size)
+        return None
+    
+    buoy_df_init.loc[good_buoy_df.index, 'flag'] = False
+    buoy_df_init = buoy_df_init.reset_index()
+
+    buoy_df_init.loc[flag_date | flag_pos, 'flag'] = True
+
+    buoy_df_init = buoy_df_init.set_index("timestamp")
+
+    return buoy_df_init
 
     
      
