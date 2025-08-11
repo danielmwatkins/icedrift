@@ -164,7 +164,7 @@ def compute_along_across_components(buoy_df, uvar='u', vvar='v', umean='u_mean',
 
 def compute_strain_rate_components(buoys, data,
                                    position_uncertainty=10,
-                                   time_delta='1h'):
+                                   time_delta='1h', verbose=False):
     """Compute the four components of strain rate and corresponding
     uncertainties from buoy trajectories. 
     
@@ -193,12 +193,12 @@ def compute_strain_rate_components(buoys, data,
         return False
 
     def polygon_area(X, Y):
-        """Compute area of polygon as a sum. Should use LAEA not PS here"""
+        """Compute area of polygon as a sum. Use LAEA not PS here"""
         sumvar = 0.
         N = len(X)        
         for i in range(N):
             sumvar += X[i]*Y[(i+1) % N] - Y[i]*X[(i+1) % N]
-        return sumvar*0.5
+        return 0.5*sumvar
     
     def polygon_area_uncertainty(X, Y, position_uncertainty):
         """Compute the area uncertainty following Dierking et al. 2020"""
@@ -247,37 +247,35 @@ def compute_strain_rate_components(buoys, data,
 
         return np.sqrt(var_ux)
 
-    def accel(X, U, A, sign):
+    def accel(xvar, uvar, area, sign):
         """Computes spatial derivative of velocity for 
-        deformation."""
-        N = len(X)
+        deformation. Choice of xvar and uvar determine which
+        derivative is being calculated."""
+        area = np.abs(area)
+        N = len(xvar)
         sumvar = 0
         for i in range(N):
-            sumvar += (U[(i+1) % N] + U[i])*(X[(i+1) % N] - X[i])
-        return 1/(2*A) * sumvar * sign
+            sumvar += (uvar[(i+1) % N] + uvar[i])*(xvar[(i+1) % N] - xvar[i])  
+        return 1/(2*area) * sumvar * sign
 
     lon_data = pd.DataFrame({b: data[b]['longitude'] for b in buoys})
     lat_data = pd.DataFrame({b: data[b]['latitude'] for b in buoys})
     time_delta = pd.to_timedelta(time_delta).total_seconds()
     
-    # Polar stereographic for velocity-based component
-    # Potential improvement: use a local stereographic projection 
-    # instead of the North Polar stereographic
+    # Potential improvement: use a local projection 
+    # instead of north polar azimuthal equal area
     
     projIn = 'epsg:4326' # WGS 84 Ellipsoid
-    projOut = 'epsg:3413' # NSIDC North Polar Stereographic
-    transformer_ps = pyproj.Transformer.from_crs(projIn, projOut, always_xy=True)
-
     projOut = 'epsg:6931' # NSIDC EASE 2.0 (for area calculation)
     transformer_laea = pyproj.Transformer.from_crs(projIn, projOut, always_xy=True)
 
+    # set up transformer for test: laea with all 0 defaults, spherical earth
+    projOut = '+proj=laea +lat_0=0 +lon_0=0 +x_0=0 +y_0=0 +a=6370997.0 +b=6370997.0 +units=m +no_defs +type=crs'
+    transformer_jkh_comp = pyproj.Transformer.from_crs(projIn, projOut, always_xy=True)
+    
     # Initialize the dataframes for position data
-    # X, Y, U, and V are in polar stereographic coordinates
-    # XA and YA are the positions in Lambert Azimuthal Equal Area for area calculations
     X_data = lon_data * np.nan
     Y_data = lon_data * np.nan
-    XA_data = lon_data * np.nan
-    YA_data = lon_data * np.nan
     U_data = lon_data * np.nan
     V_data = lon_data * np.nan
 
@@ -286,48 +284,50 @@ def compute_strain_rate_components(buoys, data,
         lon = lon_data[buoy].values
         lat = lat_data[buoy].values
 
-        x, y = transformer_ps.transform(lon, lat)
+        
+        # x, y = transformer_laea.transform(lon, lat)
+        
+        # temp adjustment to match Jenny's 
+        x, y = transformer_jkh_comp.transform(lon, lat)
         X_data[buoy] = x
         Y_data[buoy] = y
-        
-        xa, ya = transformer_laea.transform(lon, lat)
-        XA_data[buoy] = xa
-        YA_data[buoy] = ya
-        
+
+        # compute velocity using centered differences
         buoy_df = pd.DataFrame({'longitude': lon,
                                 'latitude': lat,
                                 'x': x,
                                 'y': y}, index=X_data.index)
         buoy_df = compute_velocity(buoy_df)
+        # # temp manual calculation for comparison with Jenny's code
+        # buoy_df['t'] = (buoy_df.index - buoy_df.index.min()).total_seconds()
+        # dt = buoy_df['t'].shift(-1) - buoy_df['t'].shift(1)
+        # buoy_df['u'] = (buoy_df['x'].shift(-1) - buoy_df['x'].shift(1))/dt
+        # buoy_df['v'] = (buoy_df['y'].shift(-1) - buoy_df['y'].shift(1))/dt
+        
         U_data[buoy] = buoy_df['u']
         V_data[buoy] = buoy_df['v']
 
     # Extract numpy arrays
     X = X_data.T.values
-    Y = Y_data.T.values
-    XA = XA_data.T.values
-    YA = YA_data.T.values        
+    Y = Y_data.T.values      
     U = U_data.T.values
     V = V_data.T.values
 
-    A = polygon_area(XA, YA)
+    A = polygon_area(X, Y)
 
     # Check order of points
     # Can't handle reversal partway through though!
     if np.all(A[~np.isnan(A)] < 0):
         print('Reversing order')
         X = X[::-1,:]
-        XA = XA[::-1,:]
         Y = Y[::-1,:]
-        YA = YA[::-1,:]
         U = U[::-1,:]
         V = V[::-1,:]
         
     if np.any(A[~np.isnan(A)] < 0) & np.any(A[~np.isnan(A)] > 0):
         print('Warning! Sign of area reverses')
         
-    A = polygon_area(XA, YA)
-
+    A = polygon_area(X, Y)
     dudx = accel(Y, U, A, 1)
     dudy = accel(X, U, A, -1)
     dvdx = accel(Y, V, A, 1)
@@ -367,18 +367,49 @@ def compute_strain_rate_components(buoys, data,
                         (divergence/total_deformation)**2 * sigma_vrt**2)
     
     # Results are arranged in a dataframe
-    return pd.DataFrame(
-        {'divergence': divergence,
-         'vorticity': vorticity,
-         'pure_shear': pure_shear,
-         'normal_shear': normal_shear,
-         'maximum_shear_strain_rate': maximum_shear_strain_rate,
-         'total_deformation': total_deformation,
-         'area': A,
-         'uncertainty_area': sigma_A,
-         'uncertainty_divergence': sigma_div,
-         'uncertainty_vorticity': sigma_vrt,
-         'uncertainty_shear': sigma_shr,
-         'uncertainty_total': sigma_tot,
-         'shape_flag': np.sign(A)}, # replace shape flag with metric for polygon shape
-        index=X_data.index)
+    if verbose:
+        df = pd.DataFrame(
+                    {'divergence': divergence,
+                     'vorticity': vorticity,
+                     'pure_shear': pure_shear,
+                     'normal_shear': normal_shear,
+                     'maximum_shear_strain_rate': maximum_shear_strain_rate,
+                     'total_deformation': total_deformation,
+                     'mean_dudx': dudx,
+                     'mean_dudy': dudy,
+                     'mean_dvdx': dvdx,
+                     'mean_dvdy': dvdy,
+                     'area': A,
+                     'uncertainty_area': sigma_A,
+                     'uncertainty_divergence': sigma_div,
+                     'uncertainty_vorticity': sigma_vrt,
+                     'uncertainty_shear': sigma_shr,
+                     'uncertainty_total': sigma_tot,
+                     'uncertainty_dudx': sigma_dudx,
+                     'uncertainty_dudy': sigma_dudy,
+                     'uncertainty_dvdx': sigma_dvdx,
+                     'uncertainty_dvdy': sigma_dvdy,
+                     'shape_flag': np.sign(A)}, 
+                    index=X_data.index)
+        for buoy in U_data.columns:
+            df[buoy + '_uvel'] = U_data[buoy].round(4)
+            df[buoy + '_vvel'] = V_data[buoy].round(4)
+            df[buoy + '_xcoord'] = X_data[buoy].round(1)
+            df[buoy + '_ycoord'] = Y_data[buoy].round(1)
+        return df
+    else:
+        return pd.DataFrame(
+            {'divergence': divergence,
+             'vorticity': vorticity,
+             'pure_shear': pure_shear,
+             'normal_shear': normal_shear,
+             'maximum_shear_strain_rate': maximum_shear_strain_rate,
+             'total_deformation': total_deformation,
+             'area': A,
+             'uncertainty_area': sigma_A,
+             'uncertainty_divergence': sigma_div,
+             'uncertainty_vorticity': sigma_vrt,
+             'uncertainty_shear': sigma_shr,
+             'uncertainty_total': sigma_tot,
+             'shape_flag': np.sign(A)},
+            index=X_data.index)
