@@ -73,7 +73,7 @@ def regrid_buoy_track(buoy_df, precision='5min'):
 
 # Interpolate to a regular grid
 def interpolate_buoy_track(buoy_df, xvar='longitude', yvar='latitude', 
-                           freq='1H', maxgap_minutes=120):
+                           freq='1h', maxgap_minutes=120):
     """Applies interp1d with cubic splines to the pair of variables specied by
     xvar and yvar. Assumes that the dataframe buoy_df has a datetime index.
     Frequency should be in a form understandable to pandas date_range, e.g. '1H' for hourly.
