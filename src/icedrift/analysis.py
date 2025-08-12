@@ -7,7 +7,7 @@ import numpy as np
 import pyproj
 
     
-def compute_velocity(buoy_df, date_index=True, rotate_uv=False, method='c'):
+def compute_velocity(buoy_df, date_index=True, rotate_uv=False, method='c', date_col=None):
     """Computes buoy velocity and (optional) rotates into north and east directions.
     If x and y are not in the columns, projects lat/lon onto stereographic x/y prior
     to calculating velocity. Rotate_uv moves the velocity into east/west. Velocity
@@ -33,7 +33,7 @@ def compute_velocity(buoy_df, date_index=True, rotate_uv=False, method='c'):
     if date_index:
         date = pd.Series(pd.to_datetime(buoy_df.index.values), index=pd.to_datetime(buoy_df.index))
     else:
-        date = pd.to_datetime(buoy_df.date)
+        date = pd.to_datetime(buoy_df[date_col])
         
     delta_t_next = date.shift(-1) - date
     delta_t_prior = date - date.shift(1)

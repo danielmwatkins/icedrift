@@ -1,4 +1,6 @@
 """Helper and convenience functions"""
+import pandas as pd
+
 
 def convert_level1_iabp(df):
     """Renames IABP Level One columns and converts information to datetime. Masks missing data."""
@@ -11,7 +13,9 @@ def convert_level1_iabp(df):
               'Month': 'month',
               'Day': 'day',
               'Hour': 'hour',
+              'Min': 'minute', # 2023 has Min instead of minute
               'Minute': 'minute',
+              'Sec': 'second', # 2023 has Sec instead of second
               'Second': 'second',
               'Lat': 'latitude',
               'Lon': 'longitude',
@@ -23,7 +27,7 @@ def convert_level1_iabp(df):
               'Th': 'hull_temperature',
               'Batt': 'battery_voltage'
              }, axis=1)
-    print(df.columns)
+    
     df['datetime'] = pd.to_datetime({'year': df['year'], 'month': df['month'],
                                      'day': df['day'], 'hour': df['hour'],
                                      'minute': df['minute'], 'second': df['second']})

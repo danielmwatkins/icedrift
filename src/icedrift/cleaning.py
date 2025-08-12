@@ -96,7 +96,7 @@ def check_gaps(data, threshold_gap='4h', threshold_segment=12, date_col=None):
     return flag
 
 
-def check_speed(buoy_df, date_index=True, window='3day', sigma=5, max_speed=1.5):
+def check_speed(buoy_df, date_index=True, window='3day', sigma=5, max_speed=1.5, date_col=None):
     """If the position of a point is randomly offset from the path, there will
     be a signature in the velocity. The size of the anomaly will differ depending
     on the time resolution. 
@@ -124,8 +124,9 @@ def check_speed(buoy_df, date_index=True, window='3day', sigma=5, max_speed=1.5)
         date = pd.Series(pd.to_datetime(buoy_df.index.values).round('1min'),
                          index=pd.to_datetime(buoy_df.index))
     else:
-        date = pd.to_datetime(buoy_df.date).round('1min')
-
+        date = pd.to_datetime(buoy_df[date_col]).round('1min')
+        init_index = buoy_df.index
+        buoy_df = buoy_df.set_index('datetime')
     window = pd.to_timedelta(window)
     n_min = 0.4*buoy_df.rolling(window, center=True).count()['latitude'].median()
 
@@ -149,7 +150,7 @@ def check_speed(buoy_df, date_index=True, window='3day', sigma=5, max_speed=1.5)
         return zu_anom, zv_anom
 
     # First calculate speed using backward difference and get Z-score
-    df = compute_velocity(buoy_df, date_index=True, method='fb')
+    df = compute_velocity(buoy_df, date_index=True, date_col=date_col, method='fb')
 
     zu_init, zv_init = zscore(df, window, n_min)
     zu, zv = zscore(df, window, n_min)
@@ -157,6 +158,7 @@ def check_speed(buoy_df, date_index=True, window='3day', sigma=5, max_speed=1.5)
     # Anytime the Z score for U or V velocity is larger than 3, re-calculate Z
     # scores leaving that value out.
     # Probably should replace with a while loop so that it can iterate a few times
+    # Alternatively, do a forward-looking search and recompute Z after dropping flagged values. 
     for date in df.index:
         if (np.abs(zu[date]) > 3) | (np.abs(zv[date]) > 3):
             # Select part of the data frame that is 2*n_min larger than the window
@@ -169,9 +171,19 @@ def check_speed(buoy_df, date_index=True, window='3day', sigma=5, max_speed=1.5)
             zv.loc[idx] = zv_idx.loc[idx]
 
     flag = df.u.notnull() & ((np.abs(zu) > sigma) | (np.abs(zv) > sigma))
-    df = compute_velocity(buoy_df.loc[~flag], method='fb')
-    if np.any(df.speed > max_speed):
-        flag = flag | (df.speed > max_speed)
+    df = compute_velocity(buoy_df.loc[~flag],
+                          date_index=True,
+                          date_col=date_col, method='fb')
+
+    buoy_df['speed'] = np.nan
+    buoy_df.loc[df.index, 'speed'] = df['speed']
+
+    if not date_index:
+        buoy_df = buoy_df.reset_index()
+        buoy_df.index = init_index
+    flag = pd.Series(flag.values, buoy_df.index)
+    if np.any(buoy_df.speed > max_speed):
+        flag = flag | (buoy_df.speed > max_speed)
 
     return flag
 
